@@ -175,9 +175,9 @@ svg { display: block; }
   transform: translateY(-1px);
 }
 
-/* ── logo + chat composer (Dia's AI input layout, in liquid glass) ── */
+/* ── clock + chat composer (in liquid glass) ── */
 
-/* Shrink-wraps the composer so it stays dead centre; the logo and greeting hang above it. */
+/* Shrink-wraps the composer so it stays dead centre; the clock and greeting hang above it. */
 .stage {
   position: fixed;
   top: 50%;
@@ -196,29 +196,42 @@ svg { display: block; }
   margin-bottom: 28px;
   pointer-events: none;
 }
-/*
- * Dia's dome as glass: whatever swims behind it blurs (and, in Chromium, refracts) through, cut to
- * the logo's exact shape by using the logo itself as the mask, with its brushed texture laid over
- * at partial strength.
- */
-.logo {
-  --logo-texture: 0.62;
-  position: relative;
-  width: 76px;
-  aspect-ratio: 159 / 129;
-  -webkit-mask: url(/dia-logo.png) center / contain no-repeat;
-  mask: url(/dia-logo.png) center / contain no-repeat;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.02));
-  -webkit-backdrop-filter: blur(6px) saturate(160%);
-  backdrop-filter: blur(6px) saturate(160%);
+/* Clock: big time, small date under it. Same background-coloured halo as the greeting. */
+.clock {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-shadow: 0 0 8px var(--bg), 0 0 32px var(--bg);
 }
-.liquid .logo { backdrop-filter: url(#liquid-glass) blur(6px) saturate(160%); }
-.logo::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: url(/dia-logo.png) center / contain no-repeat;
-  opacity: var(--logo-texture);
+.clock-time {
+  display: flex;
+  align-items: baseline;
+  font-family: Geist, system-ui, sans-serif;
+  font-size: clamp(64px, 11vw, 104px);
+  font-weight: 500;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  font-variant-numeric: tabular-nums;
+  color: #f2f4fa;
+}
+.clock-time .sep {
+  margin: 0 0.02em;
+  translate: 0 -0.06em;
+  color: rgba(242, 244, 250, 0.38);
+}
+.clock-time .period {
+  margin-left: 0.3em;
+  font-size: 0.24em;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: rgba(242, 244, 250, 0.5);
+}
+.clock-date {
+  font: 500 12px "Geist Mono", ui-monospace, monospace;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: rgba(232, 235, 247, 0.5);
 }
 .greeting {
   margin: 0;
@@ -233,13 +246,13 @@ svg { display: block; }
   text-shadow: 0 0 6px var(--bg), 0 0 24px var(--bg);
 }
 
-/* Liquid glass (see .glass), with Dia's layout inside. */
+/* Liquid glass (see .glass) around the search box. */
 .composer {
   /* A softer top highlight than the other glass: the rim line and the sheen fading down from it. */
   --glass-rim: rgba(255, 255, 255, calc(0.14 * var(--edge, 1)));
   --glass-sheen: rgba(255, 255, 255, 0.04);
-  --dia-text: #ececec;
-  --dia-muted: #8d8d8d;
+  --composer-text: #ececec;
+  --composer-muted: #8d8d8d;
   position: relative;
   width: min(720px, calc(100vw - 32px));
   box-sizing: border-box;
@@ -263,7 +276,7 @@ svg { display: block; }
     var(--glass-shadow);
 }
 .composer-field { display: flex; align-items: flex-start; gap: 10px; }
-.composer-search { flex: none; margin-top: 4px; color: var(--dia-muted); }
+.composer-search { flex: none; margin-top: 4px; color: var(--composer-muted); }
 .composer textarea {
   flex: 1;
   display: block;
@@ -280,10 +293,10 @@ svg { display: block; }
   font-size: 17px;
   font-weight: 400;
   line-height: 1.55;
-  color: var(--dia-text);
-  caret-color: var(--dia-text);
+  color: var(--composer-text);
+  caret-color: var(--composer-text);
 }
-.composer textarea::placeholder { color: var(--dia-muted); }
+.composer textarea::placeholder { color: var(--composer-muted); }
 .composer-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
 .tools { display: flex; align-items: center; gap: 10px; }
 

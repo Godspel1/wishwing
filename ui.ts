@@ -72,6 +72,48 @@ export function mountGreeting(defaultName = "David") {
   });
 }
 
+/** Big clock above the greeting, in the system's own 12/24-hour style, plus today's date. */
+export function mountClock() {
+  const timeEl = document.querySelector<HTMLTimeElement>(".clock-time");
+  const dateEl = document.querySelector<HTMLElement>(".clock-date");
+  if (!timeEl) return;
+
+  const timeFormat = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
+  const dateFormat = new Intl.DateTimeFormat(undefined, { weekday: "long", day: "numeric", month: "long" });
+  let shown = "";
+
+  const update = () => {
+    const now = new Date();
+    const parts = timeFormat.formatToParts(now);
+    const key = parts.map((p) => p.value).join("");
+    if (key === shown) return;
+    shown = key;
+
+    const nodes: Node[] = [];
+    for (const p of parts) {
+      if (p.type === "hour" || p.type === "minute") {
+        nodes.push(document.createTextNode(p.value));
+      } else if (p.type === "dayPeriod") {
+        const span = document.createElement("span");
+        span.className = "period";
+        span.textContent = p.value;
+        nodes.push(span);
+      } else if (p.value.trim() === ":" || p.value.trim() === ".") {
+        const span = document.createElement("span");
+        span.className = "sep";
+        span.textContent = p.value.trim();
+        nodes.push(span);
+      }
+    }
+    timeEl.replaceChildren(...nodes);
+    timeEl.dateTime = now.toISOString();
+    if (dateEl) dateEl.textContent = dateFormat.format(now);
+  };
+
+  update();
+  setInterval(update, 1000);
+}
+
 /** Composer: fires `chat:submit` and performs quick web search / URL navigation in the New Tab extension. */
 export function mountComposer() {
   const form = document.querySelector<HTMLFormElement>(".composer")!;

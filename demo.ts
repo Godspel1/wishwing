@@ -1,6 +1,6 @@
 import { mountTweakPanel, type Control, type ControlKit } from "./panel";
 import { ANIMALS, AnimalEngine, SHARED_CONTROLS, type KnobSpec, type Tuning } from "./src";
-import { mountComposer, mountGreeting, mountShortcuts } from "./ui";
+import { mountClock, mountComposer, mountGreeting, mountShortcuts } from "./ui";
 
 const STORE = "wishless-tab:";
 
@@ -40,3 +40,4 @@ window.addEventListener("storage", (e) => {
 mountComposer();
 mountShortcuts();
 mountGreeting();
+mountClock();
