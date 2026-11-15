@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "wishless' tab",
+  "version": "1.0.0",
+  "description": "A calm new tab page with butterflies drifting behind a liquid-glass search box and quick shortcuts.",
+  "chrome_url_overrides": {
+    "newtab": "index.html"
+  },
+  "action": {
+    "default_title": "wishless' tab"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "storage"
+  ]
+}
