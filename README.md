@@ -4,6 +4,7 @@ A Chrome new tab page: butterflies made of text characters drift across a dark s
 
 ## What it does
 
+- **Clock** with today's date, in your system's 12- or 24-hour style.
 - **Greeting** by time of day ("Good morning, David"). Click the name to change it.
 - **Search box**: press <kbd>Enter</kbd> to search Google, or type a web address to go straight there.
 - **Shortcuts** under the search box. Hover one and click × to remove it, or click **Add** for your own.
