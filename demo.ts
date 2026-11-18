@@ -2,6 +2,10 @@ import { mountTweakPanel, type Control, type ControlKit } from "./panel";
 import { ANIMALS, AnimalEngine, SHARED_CONTROLS, type KnobSpec, type Tuning } from "./src";
 import { mountClock, mountComposer, mountGreeting, mountShortcuts } from "./ui";
 
+// Only Chromium can run an SVG filter inside backdrop-filter; everyone else gets frosted glass.
+// (Set here, not in an inline <script>: Chrome blocks inline scripts on extension pages.)
+if (/Chrome\//.test(navigator.userAgent)) document.documentElement.classList.add("liquid");
+
 const STORE = "wishless-tab:";
 
 const params = new URLSearchParams(location.search);

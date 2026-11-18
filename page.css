@@ -1,4 +1,4 @@
-/* Shared page chrome: liquid glass, animal choices, chat composer, tweak panel. */
+/* Shared page chrome: liquid glass, animal choices, search box, tweak panel. */
 
 :root {
   --bg: #f6f3ec;
@@ -175,7 +175,7 @@ svg { display: block; }
   transform: translateY(-1px);
 }
 
-/* ── clock + chat composer (in liquid glass) ── */
+/* ── clock + search box (in liquid glass) ── */
 
 /* Shrink-wraps the composer so it stays dead centre; the clock and greeting hang above it. */
 .stage {
@@ -694,5 +694,5 @@ svg { display: block; }
   .tweaks { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: 75vh; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .glass, .choices .thumb, .choices button, .send, .icon-btn, .tweaks { transition: none; }
+  .glass, .choices .thumb, .choices button, .send, .tweaks { transition: none; }
 }

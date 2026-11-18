@@ -1,5 +1,5 @@
 /**
- * Tweak panel: scene engine knobs, profile name input, and chat glass.
+ * Tweak panel: scene engine knobs, profile name input, and search box glass.
  * Rebuilt for the New Tab extension:
  *   - No permanent tweaks button cluttering the screen.
  *   - Hovering cursor at left or right edge for 1 second reveals the panel with smooth glass slide.
@@ -294,14 +294,14 @@ export function mountTweakPanel<T extends Knobs>(
     // 3. Movement, Animal specific, Look, and Glass Knobs
     const sections: [string, Control[]][] = [
       ...activeGroups(kit),
-      ["Chat glass", [
-        pane("blur", "Blur (px)", 0, 30, 0.5, "How frosted the chat box is."),
+      ["Search box", [
+        pane("blur", "Blur (px)", 0, 30, 0.5, "How frosted the search box is."),
         pane("refraction", "Refraction", 0, 150, 1, "How strongly the glass bends what's behind it."),
         pane("ripple", "Ripple", 0.001, 0.04, 0.001, "Size of the refraction ripples."),
         pane("tint", "Tint", 0, 3, 0.05, "How milky the glass is."),
         pane("edge", "Edge", 0, 2, 0.05, "Strength of the glass rims and borders."),
-        pane("radius", "Corner radius", 0, 48, 1, "Rounding of the chat box corners."),
-        pane("width", "Width", 320, 960, 10, "Width of the chat box."),
+        pane("radius", "Corner radius", 0, 48, 1, "Rounding of the search box corners."),
+        pane("width", "Width", 320, 960, 10, "Width of the search box."),
       ]],
     ];
 

@@ -1,5 +1,5 @@
 /**
- * Page chrome shared by every scene: liquid glass, shortcuts, and the chat composer.
+ * Page chrome shared by every scene: liquid glass, shortcuts, and the search box.
  */
 
 export interface Shortcut {
@@ -114,7 +114,7 @@ export function mountClock() {
   setInterval(update, 1000);
 }
 
-/** Composer: fires `chat:submit` and performs quick web search / URL navigation in the New Tab extension. */
+/** Search box: Enter goes to a typed web address, or searches Google for anything else. */
 export function mountComposer() {
   const form = document.querySelector<HTMLFormElement>(".composer")!;
   const prompt = form.querySelector("textarea")!;
@@ -140,7 +140,6 @@ export function mountComposer() {
     e.preventDefault();
     const text = prompt.value.trim();
     if (!text) return;
-    form.dispatchEvent(new CustomEvent("chat:submit", { detail: { text } }));
 
     if (/^https?:\/\//i.test(text)) {
       window.location.href = text;
