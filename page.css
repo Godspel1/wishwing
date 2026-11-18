@@ -316,7 +316,38 @@ svg { display: block; }
   caret-color: var(--composer-text);
 }
 .composer textarea::placeholder { color: var(--composer-muted); }
-.composer-bar { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.composer-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 34px; }
+/* Left of the search button: a site chip for "yt …", a Tab hint for shortcuts, or a faint tip. */
+.composer-hint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding-left: 28px;
+  font-size: 12px;
+  color: var(--composer-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-hint.tip { opacity: 0.7; }
+.composer-hint kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--chip-edge);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--chip);
+  font: 500 11px "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+  color: var(--text-soft);
+}
+.composer-chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--accent-edge);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 500;
+}
 .tools { display: flex; align-items: center; gap: 10px; }
 .send {
   display: grid;
@@ -372,7 +403,7 @@ svg { display: block; }
   cursor: pointer;
   white-space: nowrap;
   box-sizing: border-box;
-  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), color 0.18s, background 0.18s, border-color 0.18s;
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), color 0.18s, background 0.18s, border-color 0.18s, opacity 0.2s;
 }
 .shortcut-pill:hover {
   transform: translateY(-2px);
@@ -433,6 +464,13 @@ svg { display: block; }
 
 /* Dragging to reorder: the dragged pill dims, a bar marks where it will land. */
 .shortcut-pill.dragging { opacity: 0.35; }
+/* Typing a word in the search box: matches stay bright, the rest dim; Tab rings the chosen one. */
+.shortcut-pill.dim { opacity: 0.35; }
+.shortcut-pill.selected {
+  color: var(--text);
+  border-color: var(--accent);
+  box-shadow: inset 1px 1px 0 var(--glass-rim), 0 0 0 3px var(--focus), var(--pill-shadow);
+}
 .shortcut-pill.drop-before::before,
 .shortcut-pill.drop-after::after {
   content: "";

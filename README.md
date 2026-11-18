@@ -8,6 +8,8 @@ A Chrome new tab page: butterflies made of text characters drift across a dark s
 - **Day and night**: light from 7am to 7pm and dark otherwise, with fewer, slower butterflies after 10pm. Pin it to Light or Dark in the settings drawer.
 - **Greeting** by time of day ("Good morning, David"). Click the name to change it.
 - **Search box**: press <kbd>Enter</kbd> to search Google, or type a web address to go straight there.
+  - Start with a prefix and a space to search one site: `yt` YouTube, `gh` GitHub, `r` Reddit, `w` Wikipedia, `m` Google Maps, `img` Google Images.
+  - Type part of a shortcut's name and press <kbd>Tab</kbd> to pick it (again for the next match), then <kbd>Enter</kbd> to open it.
 - **Shortcuts** under the search box, with each site's icon. Hover one to edit (✎) or remove (×) it, drag to reorder, or click **Add** for your own.
 - **Settings drawer**: click the gear in the bottom-right corner, press <kbd>T</kbd>, or hold the mouse at the left or right edge of the screen for a second. Pick a theme and a mood (Calm, Lively, Swarm, Still), or set the amount, speed, size and colour yourself. Everything else, including the glass look, is under Advanced.
 
@@ -43,7 +45,8 @@ Then open `http://localhost:5173`.
 
 - `index.html`, `page.css`: the page and its styles.
 - `demo.ts`: starts the butterflies, the settings drawer, search and shortcuts.
-- `ui.ts`: greeting, clock and search box.
+- `ui.ts`: greeting and clock.
+- `search.ts`: the search box, its site prefixes and picking shortcuts with Tab.
 - `shortcuts.ts`: the shortcut pills, their add/edit form and drag-to-reorder.
 - `theme.ts`: the day/night theme and the calmer late-night pace. Add `?hour=23` to the URL to preview another hour.
 - `panel.ts`: the settings drawer.

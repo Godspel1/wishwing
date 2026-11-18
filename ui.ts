@@ -1,6 +1,6 @@
 /**
- * Page chrome shared by every scene: greeting, clock, search box, and segmented choices.
- * The shortcut pills live in shortcuts.ts.
+ * Page chrome shared by every scene: greeting, clock, and segmented choices.
+ * The search box lives in search.ts, the shortcut pills in shortcuts.ts.
  */
 
 /** A greeting by the local time: "Good morning, David" … "Still up, David?" after 10pm. */
@@ -94,46 +94,6 @@ export function mountClock() {
 
   update();
   setInterval(update, 1000);
-}
-
-/** Search box: Enter goes to a typed web address, or searches Google for anything else. */
-export function mountComposer() {
-  const form = document.querySelector<HTMLFormElement>(".composer")!;
-  const prompt = form.querySelector("textarea")!;
-  const send = form.querySelector<HTMLButtonElement>(".send")!;
-
-  function fit() {
-    prompt.style.height = "auto";
-    prompt.style.height = `${prompt.scrollHeight}px`;
-    prompt.style.overflowY = prompt.scrollHeight > prompt.clientHeight + 1 ? "auto" : "hidden";
-    send.disabled = prompt.value.trim() === "";
-  }
-
-  prompt.addEventListener("input", fit);
-  if (matchMedia("(hover: hover) and (pointer: fine)").matches) prompt.focus({ preventScroll: true });
-  prompt.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
-      e.preventDefault();
-      form.requestSubmit();
-    }
-  });
-
-  form.addEventListener("submit", (e) => {
-    e.preventDefault();
-    const text = prompt.value.trim();
-    if (!text) return;
-
-    if (/^https?:\/\//i.test(text)) {
-      window.location.href = text;
-    } else if (/^[a-z0-9-]+(\.[a-z0-9-]+)+($|\/)/i.test(text) && !text.includes(" ")) {
-      window.location.href = "https://" + text;
-    } else {
-      window.location.href = `https://www.google.com/search?q=${encodeURIComponent(text)}`;
-    }
-
-    prompt.value = "";
-    fit();
-  });
 }
 
 export interface Choice {

@@ -330,6 +330,25 @@ export function mountShortcuts(host = document.querySelector<HTMLElement>(".shor
     get list(): readonly Shortcut[] {
       return shortcuts;
     },
+    /**
+     * Light up the shortcuts whose name or address contains `text` and dim the rest; "" clears it.
+     * Returns the matches, names that start with the text first.
+     */
+    filter(text: string): Shortcut[] {
+      const q = text.trim().toLowerCase();
+      const matches = q
+        ? shortcuts
+            .filter((s) => s.title.toLowerCase().includes(q) || hostOf(s.url).includes(q))
+            .sort((a, b) => Number(!a.title.toLowerCase().startsWith(q)) - Number(!b.title.toLowerCase().startsWith(q)))
+        : [];
+      const ids = new Set(matches.map((m) => m.id));
+      for (const pill of pills()) pill.classList.toggle("dim", Boolean(q) && !ids.has(pill.dataset.id ?? ""));
+      return matches;
+    },
+    /** Ring one shortcut as the one Enter will open (null for none). */
+    select(id: string | null) {
+      for (const pill of pills()) pill.classList.toggle("selected", pill.dataset.id === id);
+    },
   };
 }
 
