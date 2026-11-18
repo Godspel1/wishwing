@@ -54,3 +54,7 @@ Then open `http://localhost:5173`.
 - `panel.ts`: the settings drawer.
 - `src/`: the animation engine (`flock.ts`), the character renderer (`renderer.ts`), the sky (`sky.ts`) and the creatures (`animals/butterflies.ts`, `animals/fireflies.ts`).
 - `public/`: the extension manifest and icons.
+
+## Credits
+
+Built on an open-source project by drewdi, under the MIT License (see `LICENSE`).
