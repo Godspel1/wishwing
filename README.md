@@ -5,7 +5,7 @@ A Chrome new tab page: butterflies made of text characters drift across a dark s
 ## What it does
 
 - **Clock** with today's date, in your system's 12- or 24-hour style.
-- **Day and night**: light from 7am to 7pm and dark otherwise, with fewer, slower butterflies after 10pm. Pin it to Light or Dark in the settings drawer.
+- **A sky that follows the day**: night with twinkling stars, fog before dawn, morning mist, plain day, golden hour, sunset and twilight, blending smoothly from one to the next. Sunrise and sunset are estimated for a mid-northern latitude, since the extension doesn't ask for your location. Pin it to Light or Dark in the settings drawer.
 - **Greeting** by time of day ("Good morning, David"). Click the name to change it.
 - **Search box**: press <kbd>Enter</kbd> to search Google, or type a web address to go straight there.
   - Start with a prefix and a space to search one site: `yt` YouTube, `gh` GitHub, `r` Reddit, `w` Wikipedia, `m` Google Maps, `img` Google Images.
@@ -48,7 +48,7 @@ Then open `http://localhost:5173`.
 - `ui.ts`: greeting and clock.
 - `search.ts`: the search box, its site prefixes and picking shortcuts with Tab.
 - `shortcuts.ts`: the shortcut pills, their add/edit form and drag-to-reorder.
-- `theme.ts`: the day/night theme and the calmer late-night pace. Add `?hour=23` to the URL to preview another hour.
+- `theme.ts` and `src/sky.ts`: the sky through the day, and the page colours that follow it. Add `?hour=17.2` to the URL to preview another time.
 - `panel.ts`: the settings drawer.
 - `src/`: the animation engine (`flock.ts`), the character renderer (`renderer.ts`) and the butterflies (`animals/butterflies.ts`).
 - `public/`: the extension manifest and icons.

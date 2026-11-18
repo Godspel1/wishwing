@@ -1,6 +1,6 @@
 /**
  * Draws a Flock as a grid of ASCII cells:
- *   1. a faint cell grid on paper (light) or ink (dark)
+ *   1. the sky (see sky.ts): a gradient with a faint cell grid, stars at night, drifting mist
  *   2. a trail field that animals shed into, diffusing and fading as dots
  *   3. the animals, through a Pen: silhouettes rasterised cell-by-cell with
  *      supersampled edges (solid cells become a block of colour with a glyph,
@@ -11,23 +11,15 @@
 import type { Animal, Flock, Tuning } from "./flock";
 import { INK_BODY, INK_DARK, INK_GLASS, INK_GLOW, INK_LIT, INK_SCALE, INK_SHIMMER, INK_SPOT, type Ink, type RGB } from "./ink";
 import { clamp, hash3 } from "./math";
+import { mixSky, SKIES, skyColorAt, type Sky } from "./sky";
 
 const ALPHA_LEVELS = 6;
 export type Theme = "light" | "dark";
 
-interface Palette {
-  background: RGB;
-  /** Grid line colour and opacity at tuning.grid = 1. */
-  grid: [number, number, number, number];
-  trailAlpha: number;
-  /** A colour that reads against the background: dark on paper, pale on ink. */
-  ink: RGB;
-}
+/** The plain skies the Light and Dark settings pin. */
+export const THEME_SKIES: Record<Theme, Sky> = { light: SKIES.day, dark: SKIES.midnight };
 
-const PALETTES: Record<Theme, Palette> = {
-  light: { background: [246, 243, 236], grid: [30, 34, 60, 0.07], trailAlpha: 0.7, ink: [42, 42, 59] },
-  dark: { background: [6, 7, 12], grid: [255, 255, 255, 0.055], trailAlpha: 0.85, ink: [150, 160, 200] },
-};
+const STAR_GLYPHS = "..'+*";
 
 // Sparse glyphs on bright skin, dense glyphs in shadow.
 const SCALE_RAMP = ".:;+=*%#";
@@ -98,15 +90,6 @@ function withVanish(fog: number, vanish = 0) {
 const mix = (a: number, b: number, k: number) => a + (b - a) * k;
 const mixRGB = (a: RGB, b: RGB, k: number): RGB => [mix(a[0], b[0], k), mix(a[1], b[1], k), mix(a[2], b[2], k)];
 
-function mixPalette(a: Palette, b: Palette, k: number): Palette {
-  return {
-    background: mixRGB(a.background, b.background, k),
-    grid: [mix(a.grid[0], b.grid[0], k), mix(a.grid[1], b.grid[1], k), mix(a.grid[2], b.grid[2], k), mix(a.grid[3], b.grid[3], k)],
-    trailAlpha: mix(a.trailAlpha, b.trailAlpha, k),
-    ink: mixRGB(a.ink, b.ink, k),
-  };
-}
-
 /** Faint cell grid, snapped to device pixels. */
 export function paintGrid(
   g: CanvasRenderingContext2D, W: number, H: number, cw: number, ch: number, dpr: number, stroke = "rgba(30,34,60,0.07)",
@@ -147,7 +130,7 @@ export class Pen {
   readonly ink: Ink = { r: 0, g: 0, b: 0, kind: 0, glyphs: null, au: 0, av: 0 };
   t = 0;
   theme: Theme = "light";
-  /** How dark the background is right now: 0 light → 1 dark, in between while the theme crossfades. */
+  /** How dark the sky is right now: 0 light → 1 dark. */
   dark = 0;
 
   constructor(private r: AsciiRenderer) {}
@@ -170,7 +153,7 @@ export class Pen {
 
   /** A colour that reads against the background: dark on paper, pale on ink. */
   get contrast(): RGB {
-    return this.r.palette.ink;
+    return this.r.sky.ink;
   }
 
   /** Body coordinates → screen px. */
@@ -184,7 +167,7 @@ export class Pen {
 
   /** Default fade for something at this depth, deepened while it fades in or out of the flock. */
   fogFor(depth: number, vanish = 0) {
-    return withVanish((1 - depth) * this.r.tuning.fog, vanish);
+    return withVanish(this.r.depthFog(depth), vanish);
   }
 
   /** Rasterise a silhouette within `reach` (fraction of span) of the pose. */
@@ -236,7 +219,7 @@ export class AsciiRenderer {
   ch = 18;
   cols = 0;
   rows = 0;
-  palette = PALETTES.light;
+  sky: Sky = SKIES.day;
   readonly pen = new Pen(this);
 
   private ctx: CanvasRenderingContext2D;
@@ -245,10 +228,17 @@ export class AsciiRenderer {
   private width = 0;
   private height = 0;
   private fontFamily = "ui-monospace, Menlo, monospace";
-  private theme: Theme = "light";
   private animal: Animal<any> | null = null;
-  /** A theme crossfade in progress: from → to over ms, started at `start` (performance.now()). */
-  private blend: { from: Palette; fromTheme: Theme; start: number; ms: number; k: number } | null = null;
+  /** A sky crossfade in progress: from → to over ms, started at `start` (performance.now()). */
+  private blend: { from: Sky; to: Sky; start: number; ms: number } | null = null;
+  /** The sky's colour behind each row, packed 0xRRGGBB: what far things fade into. */
+  private rowSky = new Uint32Array(0);
+  /** Stars: cell, glyph, brightness and twinkle phase. Regenerated on resize. */
+  private stars: { x: number; y: number; glyph: string; b: number; phase: number; speed: number }[] = [];
+  /** Soft white mist blobs, tileable left to right, and a copy tinted in the sky's haze colour. */
+  private mistShape: HTMLCanvasElement = document.createElement("canvas");
+  private mistTinted: HTMLCanvasElement = document.createElement("canvas");
+  private mistColor = "";
 
   private energy = new Float32Array(0);
   private energyTmp = new Float32Array(0);
@@ -268,45 +258,49 @@ export class AsciiRenderer {
     if (!ctx) throw new Error("2D canvas unavailable");
     this.ctx = ctx;
     this.bg = document.createElement("canvas");
-    this.setTheme("light");
+    this.setSky(SKIES.day);
   }
 
   setFontFamily(family: string) {
     if (family) this.fontFamily = family;
   }
 
-  /** Switch theme, at once or (ms > 0) as a crossfade that render() carries out. */
+  /** The plain light or dark sky. */
   setTheme(theme: Theme, ms = 0) {
-    if (ms > 0 && theme !== this.theme && this.cols > 0) {
-      this.blend = { from: this.palette, fromTheme: this.theme, start: performance.now(), ms, k: 0 };
-      this.theme = theme;
+    this.setSky(THEME_SKIES[theme], ms);
+  }
+
+  /** Change the sky, at once or (ms > 0) as a crossfade that render() carries out. */
+  setSky(sky: Sky, ms = 0) {
+    if (ms > 0 && this.cols > 0) {
+      this.blend = { from: this.sky, to: sky, start: performance.now(), ms };
       return;
     }
     this.blend = null;
-    this.theme = theme;
-    this.pen.theme = theme;
-    this.pen.dark = theme === "dark" ? 1 : 0;
-    this.palette = PALETTES[theme];
+    this.useSky(sky);
+  }
+
+  private useSky(sky: Sky) {
+    this.sky = sky;
+    this.pen.dark = sky.dark;
+    this.pen.theme = sky.dark >= 0.5 ? "dark" : "light";
     this.restyle();
   }
 
-  /** Advance a theme crossfade: blend the palette and the trail colour, flip the pen's theme halfway. */
+  /** Advance a sky crossfade. */
   private stepBlend() {
     const b = this.blend;
     if (!b) return;
     const raw = clamp((performance.now() - b.start) / b.ms, 0, 1);
-    const k = raw * raw * (3 - 2 * raw);
-    b.k = k;
-    const to = PALETTES[this.theme];
-    this.palette = mixPalette(b.from, to, k);
-    this.pen.theme = k < 0.5 ? b.fromTheme : this.theme;
-    const fromDark = b.fromTheme === "dark" ? 1 : 0;
-    this.pen.dark = mix(fromDark, 1 - fromDark, k);
-    if (raw >= 1) {
-      this.blend = null;
-      this.palette = to;
-    }
-    this.restyle();
+    if (raw >= 1) this.blend = null;
+    this.useSky(mixSky(b.from, b.to, raw * raw * (3 - 2 * raw)));
+  }
+
+  /** How far something at this depth fades into the sky: the Distance fade knob, deeper in mist. */
+  depthFog(depth: number) {
+    const base = (1 - depth) * this.tuning.fog;
+    const murk = this.sky.murk * (0.25 + 0.75 * (1 - depth));
+    return murk > 0 ? 1 - (1 - base) * (1 - murk) : base;
   }
 
   /** Switch to another animal and its tuning; the old trail washes away. */
@@ -317,20 +311,33 @@ export class AsciiRenderer {
     this.restyle();
   }
 
-  /** Rebuild cached colours and the background after a theme, animal, hue or grid change. */
+  /** Rebuild cached colours and the background after a sky, animal, hue or grid change. */
   restyle() {
-    const palette = this.palette;
-    const b = this.blend;
+    const sky = this.sky;
     const trail = this.animal?.trail;
-    const base = trail ? (b ? mixRGB(trail[b.fromTheme], trail[this.theme], b.k) : trail[this.theme]) : palette.ink;
+    const base = trail ? mixRGB(trail.light, trail.dark, sky.dark) : sky.ink;
     this.hue = hueMatrix(this.tuning.hueShift);
     this.hueOn = this.tuning.hueShift % 360 !== 0;
-    const [r, g, bl] = this.turn(base[0], base[1], base[2]).map(Math.round);
+    const [tr, tg, tb] = sky.tint;
+    const [r, g, bl] = this.turn(base[0], base[1], base[2]);
+    const [cr, cg, cb] = [r * tr, g * tg, bl * tb].map((v) => clamp(Math.round(v), 0, 255));
     this.trailStyles = [];
     for (let l = 0; l < ALPHA_LEVELS; l++) {
-      this.trailStyles.push(`rgba(${r},${g},${bl},${((palette.trailAlpha * (l + 1)) / ALPHA_LEVELS).toFixed(3)})`);
+      this.trailStyles.push(`rgba(${cr},${cg},${cb},${((sky.trailAlpha * (l + 1)) / ALPHA_LEVELS).toFixed(3)})`);
     }
+    this.measureRows();
+    this.tintMist();
     this.paintBackground();
+  }
+
+  /** The sky colour behind each row, for fading far things into it. */
+  private measureRows() {
+    const { rows, ch, height } = this;
+    if (this.rowSky.length !== rows) this.rowSky = new Uint32Array(rows);
+    for (let r = 0; r < rows; r++) {
+      const [sr, sg, sb] = skyColorAt(this.sky, height > 0 ? clamp(((r + 0.5) * ch) / height, 0, 1) : 0.5);
+      this.rowSky[r] = pack(sr, sg, sb);
+    }
   }
 
   /** Apply the Hue shift knob to a colour. */
@@ -340,9 +347,19 @@ export class AsciiRenderer {
     return [m[0] * r + m[1] * g + m[2] * b, m[3] * r + m[4] * g + m[5] * b, m[6] * r + m[7] * g + m[8] * b];
   }
 
-  /** Blend a colour toward the background by f (0 → colour, 1 → background), packed 0xRRGGBB. */
-  private fade(r: number, g: number, b: number, f: number) {
-    const [br, bg, bb] = this.palette.background;
+  /**
+   * Light a colour by the sky's tint, then blend it toward the sky behind `row` by f
+   * (0 → colour, 1 → sky), packed 0xRRGGBB.
+   */
+  private fade(r: number, g: number, b: number, f: number, row: number) {
+    const [tr, tg, tb] = this.sky.tint;
+    r *= tr;
+    g *= tg;
+    b *= tb;
+    const bgc = this.rowSky[clamp(row, 0, this.rowSky.length - 1)] ?? 0;
+    const br = bgc >>> 16;
+    const bg = (bgc >>> 8) & 255;
+    const bb = bgc & 255;
     return pack(r + (br - r) * f, g + (bg - g) * f, b + (bb - b) * f);
   }
 
@@ -371,7 +388,108 @@ export class AsciiRenderer {
       this.cellColor = new Uint32Array(n);
       this.cellGlyph = new Uint16Array(n);
     }
+    this.placeStars();
+    this.shapeMist();
+    this.measureRows();
     this.paintBackground();
+  }
+
+  /** Scatter stars over the upper sky, fewer toward the horizon. */
+  private placeStars() {
+    const { cols, rows, cw, ch } = this;
+    this.stars = [];
+    const count = Math.round((cols * rows) / 45);
+    for (let k = 0; k < count; k++) {
+      const c = Math.floor(hash3(k, 11, 3) * cols);
+      const r = Math.floor(Math.pow(hash3(k, 17, 5), 1.6) * rows * 0.8);
+      const b = hash3(k, 23, 7);
+      this.stars.push({
+        x: c * cw + cw / 2,
+        y: r * ch + ch / 2 + 1,
+        glyph: STAR_GLYPHS[Math.min(STAR_GLYPHS.length - 1, Math.floor(b * b * STAR_GLYPHS.length))],
+        b: (0.35 + 0.65 * b) * (1 - 0.6 * (r / rows)),
+        phase: hash3(k, 29, 9) * 40,
+        speed: 0.6 + hash3(k, 31, 11) * 2.2,
+      });
+    }
+  }
+
+  /** Soft blobs of mist, heavier near the ground, drawn small and stretched over the screen. */
+  private shapeMist() {
+    const w = Math.max(32, Math.round(this.width / 6));
+    const h = Math.max(24, Math.round(this.height / 6));
+    for (const c of [this.mistShape, this.mistTinted]) {
+      c.width = w;
+      c.height = h;
+    }
+    const g = this.mistShape.getContext("2d");
+    if (!g) return;
+    g.clearRect(0, 0, w, h);
+    const ground = g.createLinearGradient(0, 0, 0, h);
+    ground.addColorStop(0, "rgba(255,255,255,0)");
+    ground.addColorStop(0.55, "rgba(255,255,255,0.08)");
+    ground.addColorStop(1, "rgba(255,255,255,0.32)");
+    g.fillStyle = ground;
+    g.fillRect(0, 0, w, h);
+    for (let k = 0; k < 46; k++) {
+      const x = hash3(k, 3, 41) * w;
+      const y = h * (0.25 + 0.75 * Math.pow(hash3(k, 5, 43), 0.6));
+      const rad = w * (0.06 + 0.16 * hash3(k, 7, 47));
+      const a = 0.05 + 0.12 * hash3(k, 9, 53);
+      // Drawn three times so the texture wraps seamlessly left to right.
+      for (const dx of [-w, 0, w]) {
+        const blob = g.createRadialGradient(x + dx, y, 0, x + dx, y, rad);
+        blob.addColorStop(0, `rgba(255,255,255,${a.toFixed(3)})`);
+        blob.addColorStop(1, "rgba(255,255,255,0)");
+        g.fillStyle = blob;
+        g.beginPath();
+        g.ellipse(x + dx, y, rad, rad * 0.55, 0, 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    this.mistColor = "";
+    this.tintMist();
+  }
+
+  /** Recolour the mist texture in the sky's haze colour (only when that colour changes). */
+  private tintMist() {
+    const [hr, hg, hb] = this.sky.haze.map(Math.round);
+    const color = `rgb(${hr},${hg},${hb})`;
+    if (color === this.mistColor || !this.mistShape.width) return;
+    this.mistColor = color;
+    const g = this.mistTinted.getContext("2d");
+    if (!g) return;
+    g.globalCompositeOperation = "copy";
+    g.drawImage(this.mistShape, 0, 0);
+    g.globalCompositeOperation = "source-in";
+    g.fillStyle = color;
+    g.fillRect(0, 0, this.mistTinted.width, this.mistTinted.height);
+    g.globalCompositeOperation = "source-over";
+  }
+
+  /** One layer of drifting mist, `speed` px/s to the right, at `alpha`. */
+  private drawMist(t: number, speed: number, alpha: number, lift: number) {
+    if (alpha <= 0.003) return;
+    const { ctx, width: W, height: H } = this;
+    const x = (t * speed) % W;
+    ctx.globalAlpha = Math.min(1, alpha);
+    ctx.drawImage(this.mistTinted, x - W, lift, W, H);
+    ctx.drawImage(this.mistTinted, x, lift, W, H);
+    ctx.globalAlpha = 1;
+  }
+
+  private drawStars(t: number) {
+    const amount = this.sky.stars;
+    if (amount <= 0.01) return;
+    const { ctx, cellFlag, cw, ch, cols } = this;
+    ctx.fillStyle = "rgb(236,240,255)";
+    for (const s of this.stars) {
+      const i = Math.floor(s.y / ch) * cols + Math.floor(s.x / cw);
+      if (cellFlag[i] === CELL_SOLID) continue;
+      ctx.globalAlpha = amount * s.b * (0.55 + 0.45 * Math.sin(t * s.speed + s.phase));
+      ctx.fillText(s.glyph, s.x, s.y);
+    }
+    ctx.globalAlpha = 1;
   }
 
   private paintBackground() {
@@ -379,9 +497,14 @@ export class AsciiRenderer {
     if (!g) return;
     const { width: W, height: H, dpr, cw, ch } = this;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = rgb(...this.palette.background);
+    const { top, mid, bottom } = this.sky;
+    const sky = g.createLinearGradient(0, 0, 0, H);
+    sky.addColorStop(0, rgb(...top));
+    sky.addColorStop(0.55, rgb(...mid));
+    sky.addColorStop(1, rgb(...bottom));
+    g.fillStyle = sky;
     g.fillRect(0, 0, W, H);
-    const [gr, gg, gb, ga] = this.palette.grid;
+    const [gr, gg, gb, ga] = this.sky.grid;
     paintGrid(g, W, H, cw, ch, dpr, `rgba(${Math.round(gr)},${Math.round(gg)},${Math.round(gb)},${(ga * this.tuning.grid).toFixed(3)})`);
   }
 
@@ -404,12 +527,18 @@ export class AsciiRenderer {
     ctx.drawImage(this.bg, 0, 0);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-    this.drawTrail(flock.time);
-
     ctx.font = `600 ${Math.round(ch * 0.74)}px ${this.fontFamily}`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+
+    const t = flock.time;
+    const mist = this.sky.mist * (0.85 + 0.15 * Math.sin(t * 0.07));
+    this.drawStars(t);
+    this.drawMist(t, 7, mist * 0.9, 0);
+    this.drawTrail(t);
     this.drawCells();
+    // A thinner, faster layer in front, so near creatures drift through it too.
+    this.drawMist(t + 400, 13, mist * 0.35, this.height * 0.06);
   }
 
   // ── trail ───────────────────────────────────────────────────────────
@@ -498,7 +627,7 @@ export class AsciiRenderer {
    * become solid (or glyph-only, for glows); partial cells become soft edge
    * glyphs, which never cover anything solid.
    */
-  shape(p: Pose, reach: number, sample: Sampler, { light = 1, tilt = 0, fog: baseFog = (1 - p.depth) * this.tuning.fog }: ShapeOptions) {
+  shape(p: Pose, reach: number, sample: Sampler, { light = 1, tilt = 0, fog: baseFog = this.depthFog(p.depth) }: ShapeOptions) {
     const fog = withVanish(baseFog, p.vanish);
     const { cellFlag, cellFill, cellColor, cellGlyph, cw, ch, cols, rows } = this;
     const ink = this.pen.ink;
@@ -558,7 +687,7 @@ export class AsciiRenderer {
           // Soft, anti-aliased silhouette: just a glyph that fades into the background.
           const set = coverage >= 0.5 ? EDGE_HEAVY : EDGE_LIGHT;
           cellFlag[i] = CELL_SOFT;
-          cellColor[i] = this.fade(ir, ig, ib, Math.min(1, fog + 0.55 - 0.45 * coverage));
+          cellColor[i] = this.fade(ir, ig, ib, Math.min(1, fog + 0.55 - 0.45 * coverage), r);
           cellGlyph[i] = set.charCodeAt((key >>> 8) % set.length);
           continue;
         }
@@ -568,7 +697,7 @@ export class AsciiRenderer {
           const lum = (0.3 * ir + 0.59 * ig + 0.11 * ib) / 255;
           const set = glyphs ?? GLOW_RAMP;
           cellFlag[i] = CELL_SOFT;
-          cellColor[i] = this.fade(ir, ig, ib, fog);
+          cellColor[i] = this.fade(ir, ig, ib, fog, r);
           cellGlyph[i] = set.charCodeAt(glyphs ? (key >>> 8) % set.length : clamp(Math.floor(lum * set.length), 0, set.length - 1));
           continue;
         }
@@ -581,24 +710,24 @@ export class AsciiRenderer {
         let gb: number;
         if (kind === INK_GLASS) {
           // See-through: the block mostly lets the background through; the glyph carries the colour.
-          cellFill[i] = this.fade(ir, ig, ib, Math.min(1, 0.62 + fog * 0.38));
+          cellFill[i] = this.fade(ir, ig, ib, Math.min(1, 0.62 + fog * 0.38), r);
           set = glyphs ?? SCALE_RAMP;
-          cellColor[i] = this.fade(ir, ig, ib, fog);
+          cellColor[i] = this.fade(ir, ig, ib, fog, r);
           cellGlyph[i] = set.charCodeAt((key >>> 8) % set.length);
           if (roll < sparkle) cellColor[i] = pack(...SPARKLES[key % SPARKLES.length]);
           continue;
         }
         if (kind === INK_LIT) {
           // Glowing: the block carries a deep version of the colour, the glyph a bright one.
-          cellFill[i] = this.fade(ir * 0.58, ig * 0.58, ib * 0.58, fog);
+          cellFill[i] = this.fade(ir * 0.58, ig * 0.58, ib * 0.58, fog, r);
           set = glyphs ?? ".:*";
           cellColor[i] = roll < sparkle
             ? pack(...SPARKLES[key % SPARKLES.length])
-            : this.fade(Math.min(255, ir * 1.05 + 50), Math.min(255, ig * 1.05 + 50), Math.min(255, ib * 1.05 + 50), fog);
+            : this.fade(Math.min(255, ir * 1.05 + 50), Math.min(255, ig * 1.05 + 50), Math.min(255, ib * 1.05 + 50), fog, r);
           cellGlyph[i] = set.charCodeAt((key >>> 8) % set.length);
           continue;
         }
-        const fill = this.fade(ir, ig, ib, fog);
+        const fill = this.fade(ir, ig, ib, fog, r);
         cellFill[i] = fill;
         const fr = fill >>> 16;
         const fg = (fill >>> 8) & 255;
@@ -635,7 +764,7 @@ export class AsciiRenderer {
   line(x0: number, y0: number, x1: number, y1: number, color: RGB, fog: number, tip?: string) {
     const { cellFlag, cellColor, cellGlyph, cw } = this;
     const [r, g, b] = this.turn(color[0], color[1], color[2]);
-    const packed = this.fade(r, g, b, fog);
+    const cols = this.cols;
     const glyph = lineGlyph(Math.atan2(y1 - y0, x1 - x0)).charCodeAt(0);
     const steps = Math.max(1, Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (cw * 0.5)));
     let last = -1;
@@ -643,7 +772,7 @@ export class AsciiRenderer {
       const i = this.cellIndex(x0 + ((x1 - x0) * s) / steps, y0 + ((y1 - y0) * s) / steps);
       if (i < 0 || cellFlag[i] === CELL_SOLID) continue;
       cellFlag[i] = CELL_SOFT;
-      cellColor[i] = packed;
+      cellColor[i] = this.fade(r, g, b, fog, (i / cols) | 0);
       cellGlyph[i] = glyph;
       last = i;
     }
@@ -655,7 +784,7 @@ export class AsciiRenderer {
     if (i < 0 || this.cellFlag[i] === CELL_SOLID) return;
     const [r, g, b] = this.turn(color[0], color[1], color[2]);
     this.cellFlag[i] = CELL_SOFT;
-    this.cellColor[i] = this.fade(r, g, b, fog);
+    this.cellColor[i] = this.fade(r, g, b, fog, (i / this.cols) | 0);
     this.cellGlyph[i] = glyph.charCodeAt(0);
   }
 
@@ -665,8 +794,9 @@ export class AsciiRenderer {
     const [r, g, b] = this.turn(color[0], color[1], color[2]);
     const [fr, fg, fb] = this.turn(fill[0], fill[1], fill[2]);
     this.cellFlag[i] = CELL_SOLID;
-    this.cellFill[i] = this.fade(fr, fg, fb, fog);
-    this.cellColor[i] = this.fade(r, g, b, fog);
+    const row = (i / this.cols) | 0;
+    this.cellFill[i] = this.fade(fr, fg, fb, fog, row);
+    this.cellColor[i] = this.fade(r, g, b, fog, row);
     this.cellGlyph[i] = glyph.charCodeAt(0);
   }
 

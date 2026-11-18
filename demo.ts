@@ -3,7 +3,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import { mountTweakPanel, type Control, type ControlKit } from "./panel";
 import { ANIMALS, AnimalEngine, SHARED_CONTROLS, type KnobSpec, type Tuning } from "./src";
-import { applyPageTheme, currentTheme, mountTheme } from "./theme";
+import { applyPageTheme, currentSky, mountTheme, themeFor } from "./theme";
 import { mountComposer } from "./search";
 import { mountShortcuts } from "./shortcuts";
 import { mountClock, mountGreeting } from "./ui";
@@ -19,9 +19,10 @@ const count = Number(params.get("count")) || undefined;
 
 const butterflies = ANIMALS.butterflies;
 
-// Light by day, dark at night (or whatever the drawer pins it to).
-applyPageTheme();
-const engine = new AnimalEngine(document.querySelector("canvas")!, { animal: "butterflies", count, theme: currentTheme() });
+// The sky follows the time of day (or whatever the drawer pins it to).
+const sky = currentSky();
+applyPageTheme(sky);
+const engine = new AnimalEngine(document.querySelector("canvas")!, { animal: "butterflies", count, theme: themeFor(sky) });
 const theme = mountTheme(engine);
 
 const storageKey = `${STORE}tweaks:butterflies`;

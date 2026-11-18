@@ -152,8 +152,8 @@ export function mountTweakPanel<T extends Knobs>(
     animals?: AnimalChoice[];
     currentAnimal?: string;
     onPickAnimal?: (key: string) => void;
-    /** The time-of-day theme, to pick Auto / Light / Dark. */
-    theme?: { readonly mode: ThemeMode; setMode(mode: ThemeMode): void };
+    /** The time-of-day sky, to pick Auto / Light / Dark; `now` names what the sky is doing. */
+    theme?: { readonly mode: ThemeMode; readonly now?: string; setMode(mode: ThemeMode): void };
   } = {},
 ) {
   let activeStorageKey = storageKey;
@@ -369,10 +369,16 @@ export function mountTweakPanel<T extends Knobs>(
     return line;
   }
 
-  /** A labelled segmented control. */
-  function choiceRow(name: string, host: HTMLElement) {
+  /** A labelled segmented control, with an optional live note beside the label. */
+  function choiceRow(name: string, host: HTMLElement, note?: () => string) {
     const wrap = el("div", "tweaks-field");
-    wrap.append(el("span", "tweaks-field-label", name), host);
+    const label = el("span", "tweaks-field-label", name);
+    if (note) {
+      const small = el("span", "tweaks-field-note");
+      label.append(small);
+      refreshers.push(() => (small.textContent = note()));
+    }
+    wrap.append(label, host);
     host.setAttribute("role", "radiogroup");
     host.setAttribute("aria-label", name);
     return wrap;
@@ -404,12 +410,15 @@ export function mountTweakPanel<T extends Knobs>(
     const look: HTMLElement[] = [];
     if (theme) {
       const host = el("div", "choices");
-      look.push(choiceRow("Theme", host));
+      look.push(choiceRow("Sky", host, () => (theme.now ? `now ${theme.now}` : "")));
       const c = mountChoices(host, [
         { value: "auto", label: "Auto" },
         { value: "light", label: "Light" },
         { value: "dark", label: "Dark" },
-      ], theme.mode, (v) => theme.setMode(v as ThemeMode));
+      ], theme.mode, (v) => {
+        theme.setMode(v as ThemeMode);
+        refreshAll();
+      });
       cleanups.push(c.destroy);
     }
     if (animals.length > 1) {
@@ -528,6 +537,7 @@ export function mountTweakPanel<T extends Knobs>(
   buildBody();
 
   const setOpen = (open: boolean) => {
+    if (open) refreshAll();
     panel.classList.toggle("open", open);
     gear.setAttribute("aria-expanded", String(open));
     if (!open) hideTip();
