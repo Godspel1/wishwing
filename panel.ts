@@ -458,7 +458,7 @@ export function mountTweakPanel<T extends Knobs>(
     nameInput.id = "tweaks-name";
     nameLabel.htmlFor = nameInput.id;
     nameInput.value = getGreetingName();
-    nameInput.placeholder = "David";
+    nameInput.placeholder = "Your name";
     nameInput.addEventListener("input", () => setGreetingName(nameInput.value));
     nameRow.append(nameLabel, nameInput);
     body.append(section("Profile", nameRow));

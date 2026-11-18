@@ -3,39 +3,48 @@
  * The search box lives in search.ts, the shortcut pills in shortcuts.ts.
  */
 
-/** A greeting by the local time: "Good morning, David" … "Still up, David?" after 10pm. */
+const NAME_KEY = "wishless-tab:user-name";
+
+/**
+ * A greeting by the local time: "Good morning" … "Still up?" after 10pm, with the user's name
+ * once they've set one ("Good morning, Sam").
+ */
 export function greetingFor(name: string, date = new Date()) {
   const h = date.getHours();
-  if (h >= 5 && h < 12) return `Good morning, ${name}`;
-  if (h >= 12 && h < 17) return `Good afternoon, ${name}`;
-  if (h >= 17 && h < 22) return `Good evening, ${name}`;
-  return `Still up, ${name}?`;
+  const to = name ? `, ${name}` : "";
+  if (h >= 5 && h < 12) return `Good morning${to}`;
+  if (h >= 12 && h < 17) return `Good afternoon${to}`;
+  if (h >= 17 && h < 22) return `Good evening${to}`;
+  return `Still up${to}?`;
 }
 
-let activeGreetingName = "David";
+let activeGreetingName = "";
 
+/** The name the user set, or "" for none. */
 export function getGreetingName(): string {
   try {
-    const saved = localStorage.getItem("wishless-tab:user-name");
-    if (saved) return saved;
-  } catch {}
-  return "David";
+    return localStorage.getItem(NAME_KEY)?.trim() ?? "";
+  } catch {
+    return "";
+  }
 }
 
+/** Set (or, with "", clear) the name in the greeting. */
 export function setGreetingName(name: string) {
-  activeGreetingName = name.trim() || "David";
+  activeGreetingName = name.trim();
   try {
-    localStorage.setItem("wishless-tab:user-name", activeGreetingName);
+    if (activeGreetingName) localStorage.setItem(NAME_KEY, activeGreetingName);
+    else localStorage.removeItem(NAME_KEY);
   } catch {}
   const el = document.querySelector<HTMLElement>(".greeting");
   if (el) el.textContent = greetingFor(activeGreetingName);
 }
 
-/** Greet by the time of day, and keep it current if the page stays open. */
-export function mountGreeting(defaultName = "David") {
+/** Greet by the time of day, and keep it current if the page stays open. Click it to set a name. */
+export function mountGreeting() {
   const el = document.querySelector<HTMLElement>(".greeting");
   if (!el) return;
-  activeGreetingName = getGreetingName() || defaultName;
+  activeGreetingName = getGreetingName();
 
   const update = () => (el.textContent = greetingFor(activeGreetingName));
   update();
@@ -44,13 +53,12 @@ export function mountGreeting(defaultName = "David") {
   el.style.cursor = "pointer";
   el.title = "Click to set your name";
   el.addEventListener("click", () => {
-    const next = window.prompt("What should I call you?", activeGreetingName);
-    if (next !== null && next.trim() !== "") {
-      setGreetingName(next.trim());
-      // Also notify any open tweaks input
-      const tweaksInput = document.querySelector<HTMLInputElement>(".tweaks-name-input");
-      if (tweaksInput) tweaksInput.value = next.trim();
-    }
+    const next = window.prompt("What should I call you? (Leave empty for no name.)", activeGreetingName);
+    if (next === null) return;
+    setGreetingName(next);
+    // Keep the drawer's name field in step.
+    const field = document.querySelector<HTMLInputElement>(".tweaks-name-input");
+    if (field) field.value = next.trim();
   });
 }
 

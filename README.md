@@ -7,7 +7,7 @@ A Chrome new tab page: butterflies made of text characters drift across a dark s
 - **Butterflies** drift aside from the mouse pointer and scatter when you click empty sky. A few seconds after you open a tab, one lands on top of the clock or the search box, folds its wings up and rests there side-on, until you type, come close with the mouse, or click it. Shyness and Landing, under Advanced, set how much.
 - **Clock** with today's date, in your system's 12- or 24-hour style.
 - **A sky that follows the day**: night with twinkling stars, fog before dawn, morning mist, plain day, golden hour, sunset and twilight, blending smoothly from one to the next. Sunrise and sunset are estimated for a mid-northern latitude, since the extension doesn't ask for your location. Pin it to Light or Dark in the settings drawer.
-- **Greeting** by time of day ("Good morning, David"). Click the name to change it.
+- **Greeting** by time of day ("Good morning"). Click it to add your name ("Good morning, Sam").
 - **Search box**: press <kbd>Enter</kbd> to search Google, or type a web address to go straight there.
   - Start with a prefix and a space to search one site: `yt` YouTube, `gh` GitHub, `r` Reddit, `w` Wikipedia, `m` Google Maps, `img` Google Images.
   - Type part of a shortcut's name and press <kbd>Tab</kbd> to pick it (again for the next match), then <kbd>Enter</kbd> to open it.
