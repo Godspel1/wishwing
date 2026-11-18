@@ -12,10 +12,15 @@
  *
  * Each light is a soft round glow (Pen.glow), warm yellow, that adds up where they gather, with a
  * crisp character at its centre that grows from . to + to * as the flash peaks.
+ *
+ * They live over a meadow: a strip of ASCII grass along the bottom that sways in the wind and
+ * catches the light of fireflies close by. Most hover low over it, each slowly rising and sinking
+ * back on its own long rhythm.
  */
 import { SHARED_TUNING, type Animal, type Creature, type Flock, type Perch } from "../flock";
 import type { RGB } from "../ink";
-import { angleDiff, clamp, rand, smoothstep, TAU } from "../math";
+import { angleDiff, clamp, hash3, rand, smoothstep, TAU } from "../math";
+import type { Pen } from "../renderer";
 
 const FLY = 0;
 const APPROACH = 1;
@@ -53,6 +58,10 @@ interface Firefly extends Creature {
   modeAt: number;
   /** Perched: leaves then. Flying: won't land again before then. */
   restUntil: number;
+  /** Where it likes to hover, as a fraction of the screen height (mostly low), and its slow rise. */
+  home: number;
+  risePhase: number;
+  riseRate: number;
 }
 
 const DEFAULTS = {
@@ -86,6 +95,99 @@ const LAND_RATE = 0.3;
 const mix = (a: RGB, b: RGB, k: number): RGB => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 /** Roughly normal, mean 0, spread 1. */
 const randn = () => (Math.random() + Math.random() + Math.random() - 1.5) * 2;
+
+/** The height it likes to hover at right now: its home, drifting slowly up and back down. */
+function altitude(f: Firefly, flock: Flock<Firefly>) {
+  const rise = 0.5 - 0.5 * Math.cos(f.risePhase + flock.time * f.riseRate);
+  return flock.height * clamp(f.home - 0.2 * rise, 0.05, 0.97);
+}
+
+// ── the meadow ──────────────────────────────────────────────────────
+
+/** One blade of grass per column: height in rows, how it leans (−1 left … 1 right), its tip, a shade. */
+interface Blade {
+  h: number;
+  lean: number;
+  tip: string;
+  shade: number;
+}
+
+const TIPS = "'`,.";
+/** Grass on a dark sky and a pale one, and the colour it turns where a firefly lights it. */
+const GRASS_DARK: RGB = [62, 96, 82];
+const GRASS_LIGHT: RGB = [92, 122, 86];
+const GRASS_LIT: RGB = [255, 206, 110];
+
+let meadow: { cols: number; tall: number; blades: Blade[] } | null = null;
+/** Light falling on each meadow cell this frame. */
+let grassLight = new Float32Array(0);
+/** This frame's lit fireflies: where, how far the light reaches, how bright. */
+const lit: { x: number; y: number; r: number; a: number }[] = [];
+
+/** Clumps of 3–9 blades fanning out from an upright middle, like \\|//. */
+function growBlades(cols: number, tall: number) {
+  const blades: Blade[] = [];
+  for (let c = 0, k = 0; c < cols; k++) {
+    const w = 3 + Math.floor(hash3(k, 13, 2) * 7);
+    const peak = 0.45 + 0.55 * hash3(k, 17, 4);
+    for (let j = 0; j < w && c < cols; j++, c++) {
+      const across = (j / (w - 1)) * 2 - 1;
+      blades.push({
+        h: Math.max(1, Math.round(tall * peak * (1 - 0.55 * across * across) * (0.7 + 0.3 * hash3(c, 5, 7)))),
+        lean: across * 0.7 + (hash3(c, 9, 3) - 0.5) * 0.3,
+        tip: TIPS[Math.floor(hash3(c, 19, 5) * TIPS.length)],
+        shade: hash3(c, 23, 9),
+      });
+    }
+  }
+  return blades;
+}
+
+/** The grass along the bottom, swaying in a slow wind and warmed by the fireflies over it. */
+function drawMeadow(flock: Flock<Firefly>, pen: Pen) {
+  const { cols, cw, ch } = pen;
+  const tall = clamp(Math.round((flock.height * 0.11) / ch), 3, 7);
+  if (!meadow || meadow.cols !== cols || meadow.tall !== tall) meadow = { cols, tall, blades: growBlades(cols, tall) };
+  // The last whole row on screen, and the meadow's top row.
+  const bottom = Math.floor(flock.height / ch) - 1;
+  const top = bottom - tall + 1;
+
+  const n = cols * tall;
+  if (grassLight.length !== n) grassLight = new Float32Array(n);
+  else grassLight.fill(0);
+  for (const l of lit) {
+    const R = l.r * 2.2;
+    if (l.y + R < top * ch) continue;
+    const c0 = Math.max(0, Math.floor((l.x - R) / cw));
+    const c1 = Math.min(cols - 1, Math.floor((l.x + R) / cw));
+    const r0 = Math.max(top, Math.floor((l.y - R) / ch));
+    const r1 = Math.min(bottom, Math.floor((l.y + R) / ch));
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const d = Math.hypot((c + 0.5) * cw - l.x, (r + 0.5) * ch - l.y);
+        if (d < R) grassLight[(r - top) * cols + c] += l.a * (1 - d / R) ** 2;
+      }
+    }
+  }
+
+  const t = pen.t;
+  const base = mix(GRASS_LIGHT, GRASS_DARK, pen.dark);
+  for (let c = 0; c < cols; c++) {
+    const b = meadow.blades[c];
+    // Gusts rolling across from the left.
+    const wind = 0.38 * Math.sin(t * 0.55 - c * 0.11) + 0.16 * Math.sin(t * 1.4 - c * 0.37);
+    for (let j = 0; j < b.h; j++) {
+      const r = bottom - j;
+      const up = (j + 1) / b.h;
+      const lean = b.lean + wind * up;
+      const glyph = j === b.h - 1 && Math.abs(lean) < 0.55 ? b.tip : lean > 0.3 ? "/" : lean < -0.3 ? "\\" : "|";
+      const glow = Math.min(1, grassLight[(r - top) * cols + c] * 1.4);
+      // Faint and uneven by default, tips fainter; lit blades come forward.
+      const fog = (0.32 + 0.25 * b.shade + 0.12 * up) * (1 - 0.8 * glow);
+      pen.dot((c + 0.5) * cw, (r + 0.5) * ch, glyph, glow > 0.01 ? mix(base, GRASS_LIT, glow) : base, 1, fog);
+    }
+  }
+}
 
 function flash(f: Firefly, flock: Flock<Firefly>, sync: number) {
   const t = flock.time;
@@ -145,12 +247,14 @@ export const fireflies: Animal<Firefly> = {
     pulses: 1 + Math.floor(Math.random() * 3), glow: 0, flashPending: Infinity, bob: rand(0, TAU),
     orbit: Math.random() < 0.5 ? -1 : 1, ring: rand(36, 110), interest: Math.random() < 0.65 ? rand(0.6, 1) : rand(0, 0.2),
     mode: FLY, perchId: "", perchX: 0, claimAt: 0, modeAt: 0, restUntil: rand(1, 6),
+    // Most hover low over the meadow; a few roam higher up.
+    home: 0.97 - 0.67 * Math.random() ** 2, risePhase: rand(0, TAU), riseRate: TAU / rand(40, 90),
   }),
 
-  /** Anywhere on screen: it's dark between flashes, so nobody sees it arrive. */
+  /** Anywhere along its own height: it's dark between flashes, so nobody sees it arrive. */
   enter(f, flock) {
     f.x = rand(0, flock.width);
-    f.y = rand(0, flock.height);
+    f.y = clamp(altitude(f, flock) + rand(-40, 40), 0, flock.height);
     f.wander = rand(0, TAU);
     f.vx = Math.cos(f.wander) * 8;
     f.vy = Math.sin(f.wander) * 8;
@@ -235,6 +339,8 @@ export const fireflies: Animal<Firefly> = {
         const into = Math.max(m - f.x, f.x - (W - m), m - f.y, f.y - (H - m), 0);
         if (into > 0) f.wander += angleDiff(f.wander, Math.atan2(H / 2 - f.y, W / 2 - f.x)) * clamp(into / m, 0, 1) * 2 * dt;
         flock.steer(f, f.wander, cruise, 1.2);
+        // Drift back toward its own height.
+        acc.y += clamp((altitude(f, flock) - f.y) / (0.12 * H), -1, 1) * 12;
         if (f.mode === LEAVE && t - f.modeAt > 1.5) f.mode = FLY;
 
         // Curious about the pointer: circle it and flash back, unless it sweeps through fast.
@@ -306,17 +412,24 @@ export const fireflies: Animal<Firefly> = {
     const dark = pen.dark;
     const core = mix(CORE_LIGHT, CORE_DARK, dark);
     const glow = mix(GLOW_LIGHT, GLOW_DARK, dark);
+    lit.length = 0;
     for (const f of flock.creatures) {
       // Distance dims a firefly, but only half as much as it fades other animals.
       const L = f.glow * (1 - f.vanish) * (1 - 0.5 * pen.fogFor(f.depth));
-      if (L > 0.02) {
-        const radius = (6 + 16 * k.glow) * (0.45 + 0.55 * f.depth) * (0.75 + 0.25 * L);
-        // A sharp point that grows as the flash peaks: . → + → *
-        const point = L > 0.7 ? "*" : L > 0.35 ? "+" : ".";
-        pen.glow(f.x, f.y, radius, glow, core, L * (0.75 + 0.25 * dark), point);
+      if (L > 0.02) lit.push({ x: f.x, y: f.y, r: (6 + 16 * k.glow) * (0.45 + 0.55 * f.depth) * (0.75 + 0.25 * L), a: L });
+    }
+    drawMeadow(flock, pen);
+    for (const l of lit) {
+      // A sharp point that grows as the flash peaks: . → + → *
+      const point = l.a > 0.7 ? "*" : l.a > 0.35 ? "+" : ".";
+      pen.glow(l.x, l.y, l.r, glow, core, l.a * (0.75 + 0.25 * dark), point);
+    }
+    // Unlit, they're little dark beetles: a speck, only noticeable on a pale sky.
+    if (dark < 0.5) {
+      for (const f of flock.creatures) {
+        const L = f.glow * (1 - f.vanish) * (1 - 0.5 * pen.fogFor(f.depth));
+        if (L < 0.3 && f.vanish < 0.9) pen.dot(f.x, f.y, ".", BODY, f.depth);
       }
-      // Unlit, they're little dark beetles: a speck, only noticeable on a pale sky.
-      if (L < 0.3 && dark < 0.5 && f.vanish < 0.9) pen.dot(f.x, f.y, ".", BODY, f.depth);
     }
   },
 };
