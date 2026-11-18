@@ -211,9 +211,10 @@ export class Pen {
   /**
    * A soft round light at (x, y), `radius` px, drawn over the cells: a `core` colour at the centre
    * fading through `color` to nothing. Additive on a dark sky, so overlapping lights add up.
+   * `glyph` puts a crisp character on top at the centre, so the light has a sharp point.
    */
-  glow(x: number, y: number, radius: number, color: RGB, core: RGB, alpha: number) {
-    this.r.glow(x, y, radius, color, core, alpha);
+  glow(x: number, y: number, radius: number, color: RGB, core: RGB, alpha: number, glyph = "") {
+    this.r.glow(x, y, radius, color, core, alpha, glyph);
   }
 
   /** Cell index under (x, y), or -1 off screen. */
@@ -248,7 +249,7 @@ export class AsciiRenderer {
   private mistTinted: HTMLCanvasElement = document.createElement("canvas");
   private mistColor = "";
   /** Soft lights queued by the animals this frame (see Pen.glow). */
-  private glows: { x: number; y: number; r: number; color: RGB; core: RGB; a: number }[] = [];
+  private glows: { x: number; y: number; r: number; color: RGB; core: RGB; a: number; glyph: string }[] = [];
 
   private energy = new Float32Array(0);
   private energyTmp = new Float32Array(0);
@@ -562,8 +563,8 @@ export class AsciiRenderer {
     return r * this.cols + c;
   }
 
-  glow(x: number, y: number, r: number, color: RGB, core: RGB, a: number) {
-    if (a > 0.01 && r > 0.5) this.glows.push({ x, y, r, color, core, a: Math.min(1, a) });
+  glow(x: number, y: number, r: number, color: RGB, core: RGB, a: number, glyph = "") {
+    if (a > 0.01 && r > 0.5) this.glows.push({ x, y, r, color, core, a: Math.min(1, a), glyph });
   }
 
   private drawGlows() {
@@ -577,17 +578,28 @@ export class AsciiRenderer {
       return `rgba(${clamp(Math.round(r), 0, 255)},${clamp(Math.round(g), 0, 255)},${clamp(Math.round(b), 0, 255)},${a.toFixed(3)})`;
     };
     for (const l of glows) {
+      // With a glyph for its point, the light itself stays soft at the centre instead of a blob.
+      const hot = l.glyph ? 0.6 : 1;
       const grad = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
-      grad.addColorStop(0, rgba(l.core, l.a));
-      grad.addColorStop(0.1, rgba(l.core, l.a * 0.85));
-      grad.addColorStop(0.22, rgba(l.color, l.a * 0.55));
+      grad.addColorStop(0, rgba(l.core, l.a * hot));
+      grad.addColorStop(0.1, rgba(l.core, l.a * 0.85 * hot));
+      grad.addColorStop(0.22, rgba(l.color, l.a * 0.55 * hot));
       grad.addColorStop(0.5, rgba(l.color, l.a * 0.16));
       grad.addColorStop(1, rgba(l.color, 0));
       ctx.fillStyle = grad;
       ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
     }
     ctx.globalCompositeOperation = "source-over";
-    glows.length = 0;
+    // The points, painted on top so they stay crisp: pale gold on a dark sky (warmer than the white
+    // stars), deep amber on a pale one.
+    const [pr, pg, pb] = this.turn(mix(150, 255, dark), mix(84, 236, dark), mix(10, 150, dark));
+    ctx.fillStyle = rgb(pr, pg, pb);
+    for (const l of glows) {
+      if (!l.glyph) continue;
+      ctx.globalAlpha = Math.min(1, l.a * 1.3);
+      ctx.fillText(l.glyph, l.x, l.y + 1);
+    }
+    ctx.globalAlpha = 1;
   }
 
   shed(x: number, y: number, amount: number) {

@@ -10,7 +10,8 @@
  * close, but a fast swipe scatters them. Now and then one settles on the top of the search box or
  * the clock and goes on blinking there.
  *
- * Each light is a soft round glow (Pen.glow), warm yellow, that adds up where they gather.
+ * Each light is a soft round glow (Pen.glow), warm yellow, that adds up where they gather, with a
+ * crisp character at its centre that grows from . to + to * as the flash peaks.
  */
 import { SHARED_TUNING, type Animal, type Creature, type Flock, type Perch } from "../flock";
 import type { RGB } from "../ink";
@@ -310,7 +311,9 @@ export const fireflies: Animal<Firefly> = {
       const L = f.glow * (1 - f.vanish) * (1 - 0.5 * pen.fogFor(f.depth));
       if (L > 0.02) {
         const radius = (6 + 16 * k.glow) * (0.45 + 0.55 * f.depth) * (0.75 + 0.25 * L);
-        pen.glow(f.x, f.y, radius, glow, core, L * (0.75 + 0.25 * dark));
+        // A sharp point that grows as the flash peaks: . → + → *
+        const point = L > 0.7 ? "*" : L > 0.35 ? "+" : ".";
+        pen.glow(f.x, f.y, radius, glow, core, L * (0.75 + 0.25 * dark), point);
       }
       // Unlit, they're little dark beetles: a speck, only noticeable on a pale sky.
       if (L < 0.3 && dark < 0.5 && f.vanish < 0.9) pen.dot(f.x, f.y, ".", BODY, f.depth);
