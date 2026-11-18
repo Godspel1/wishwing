@@ -64,7 +64,7 @@ export interface Perch {
 }
 
 /** Strength of avoidPointer at Shyness 1, px/s². */
-const AVOID_ACCEL = 600;
+const AVOID_ACCEL = 1000;
 
 
 /** Knobs every animal has. Each animal's defaults start from these and add its own. */
@@ -490,7 +490,7 @@ export class Flock<C extends Creature = Creature> {
    * Veer away from the moving pointer, as hard as `strength`. Looks a little ahead of the pointer,
    * dodges sideways when it heads straight for the creature, and barely touches far ones.
    */
-  avoidPointer(c: Creature, strength = this.tuning.avoid, reach = 150) {
+  avoidPointer(c: Creature, strength = this.tuning.avoid, reach = 200) {
     const p = this.pointer;
     if (strength <= 0 || p.stir < 0.01 || !p.inside) return;
     const sp = Math.hypot(p.vx, p.vy);

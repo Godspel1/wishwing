@@ -13,7 +13,7 @@
  * the wings held flat. Now and then one lands on the page (see below).
  */
 import { SHARED_TUNING, type Animal, type Creature, type Flock, type Perch } from "../flock";
-import { INK_BODY, INK_DARK, INK_SHIMMER, INK_SPOT, ink } from "../ink";
+import { INK_BODY, INK_DARK, INK_SCALE, INK_SHIMMER, INK_SPOT, ink, type Ink } from "../ink";
 import { angleDiff, clamp, frac, rand, smoothstep, TAU } from "../math";
 
 interface Lobe {
@@ -36,6 +36,23 @@ const HIND: Lobe = { from: -1.45, to: 0.15, reach: 0.44, peak: 0.48, round: 0.42
 const FORE_ROOT = 0.06;
 const HIND_ROOT = -0.02;
 const BODY: [number, number, number] = [30, 30, 42];
+/** Eyespots on the underside: [0 forewing / 1 hindwing, t across the fan, r out from the root]. */
+const EYESPOTS: [number, number, number][] = [[0, 0.5, 0.62], [1, 0.3, 0.56], [1, 0.66, 0.6]];
+
+/** A wing's underside, seen when it sits with them folded: warm browns, an ochre line, dark margins, ringed eyespots. */
+function paintUnderside(out: Ink, part: number, t: number, r: number) {
+  if (r > 0.9) return ink(out, 62, 42, 28, INK_DARK);
+  for (const [sp, st, sr] of EYESPOTS) {
+    if (sp !== part) continue;
+    const d = Math.hypot((t - st) * 2.2, r - sr);
+    if (d < 0.06) return ink(out, 238, 228, 200, INK_SPOT);
+    if (d < 0.12) return ink(out, 38, 28, 20, INK_DARK);
+    if (d < 0.18) return ink(out, 214, 168, 74, INK_SCALE);
+  }
+  if (r < 0.1) return ink(out, 72, 52, 36, INK_DARK);
+  if (Math.abs(r - 0.42) < 0.035) return ink(out, 176, 136, 80, INK_SCALE);
+  return ink(out, 112 + 34 * r, 80 + 22 * r, 52 + 10 * r, INK_SCALE);
+}
 const FLAP_HZ = 2.6;
 const GLIDE = 0.35;
 const FLUTTER = 1.3;
@@ -71,9 +88,11 @@ function inLobe(l: Lobe, du: number, vw: number) {
 
 /*
  * Landing. Now and then a near butterfly picks a free spot on a ledge (the top of the search box or
- * the clock), flies over, settles upright on it and basks, wings slowly opening and closing. It
- * takes off when the user types, the pointer comes close, it's clicked, its spot stops fitting,
- * or after a while. Which spots are taken is read off the flock itself, so nothing can go stale.
+ * the clock) and flies over. As it touches down it turns side-on, as you'd see a butterfly resting
+ * on a ledge at eye level: body level along the edge, standing on its legs, wings folded together
+ * straight up, showing their brown, eye-spotted undersides. Now and then it flexes them. It takes
+ * off when the user types, the pointer comes close, it's clicked, its spot stops fitting, or after
+ * a while. Which spots are taken is read off the flock itself, so nothing can go stale.
  */
 const FLY = 0;
 const APPROACH = 1;
@@ -86,10 +105,10 @@ const UP = -Math.PI / 2;
 const NEAR = 0.55;
 /** Most that may be landing or landed at once. */
 const CAP = 3;
-/** Landings per second at Landing 1, while someone is free to land. */
-const LAND_RATE = 0.12;
-/** How far the wings open while basking (for spacing them out on a ledge). */
-const PERCH_OPEN = 0.75;
+/** Landings per second at Landing 1, while someone is free to land (three times that just after opening). */
+const LAND_RATE = 0.35;
+/** Body centre above the ledge while sitting: half the body plus the legs, in span units. */
+const LEG = 0.1;
 
 /** The wing outline's extent in body units (fractions of span), measured from the lobes once. */
 const { HIND_DROP, TOP_REACH, WING_HALF } = (() => {
@@ -107,6 +126,8 @@ const { HIND_DROP, TOP_REACH, WING_HALF } = (() => {
   }
   return { HIND_DROP: -minU, TOP_REACH: maxU, WING_HALF: maxV };
 })();
+/** Half the length of a sitting butterfly, head to tail, wings folded (span units). */
+const HALF_LEN = Math.max(TOP_REACH, HIND_DROP);
 
 interface Butterfly extends Creature {
   /** Wingbeat phase. */
@@ -132,36 +153,45 @@ interface Butterfly extends Creature {
   modeAt: number;
   /** Perched: leaves then. Flying: won't land again before then. */
   restUntil: number;
-  /** A slight tilt off upright while sitting. */
+  /** A slight tilt while sitting. */
   lean: number;
-  /** Basking clock: wings open and close as it turns. */
+  /** Resting clock: now and then the folded wings flex. */
   bask: number;
+  /** 0 seen from above, flying → 1 seen side-on, sitting with its wings folded up. */
+  fold: number;
+  /** Which way it faces while sitting: 0 right, π left. */
+  face: number;
+  /** Height of the folded wings seen side-on (dips when they flex). */
+  lift: number;
+  /** The ledge under its feet, px (for drawing the legs). */
+  ground: number;
 }
 
 type Flock$ = Flock<Butterfly>;
 
-/**
- * Body centre for sitting on a ledge: the lowest wing point on the edge, snapped to the cell grid.
- * It would rather dip a little into the ledge (feet on it) than hover visibly above it.
- */
-function seatY(flock: Flock$, perch: Perch, S: number) {
+/** The ledge's edge snapped to the cell grid, so the feet meet it rather than hover a part-cell above. */
+function groundY(flock: Flock$, perch: Perch) {
   const ch = flock.cellH;
   const rowTop = Math.floor(perch.y / ch) * ch;
-  const edge = perch.y - rowTop > 0.4 * ch ? rowTop + ch : rowTop;
-  return edge - HIND_DROP * S;
+  return perch.y - rowTop > 0.4 * ch ? rowTop + ch : rowTop;
+}
+
+/** Body centre for sitting on a ledge: standing on its legs on the edge. */
+function seatY(flock: Flock$, perch: Perch, S: number) {
+  return groundY(flock, perch) - LEG * S;
 }
 
 /** Could a butterfly of span S sit at x on this ledge, clear of the keep-outs and the others there? */
 function fits(flock: Flock$, perch: Perch, self: Butterfly, S: number, x: number) {
-  if (x < perch.x0 + 0.15 * S || x > perch.x1 - 0.15 * S) return false;
-  if (perch.y - (HIND_DROP + TOP_REACH) * S < 4) return false;
-  const half = WING_HALF * PERCH_OPEN * S;
+  if (x < perch.x0 + 0.1 * S || x > perch.x1 - 0.1 * S) return false;
+  if (perch.y - (LEG + WING_HALF) * S < 4) return false;
+  const half = HALF_LEN * S;
   for (const [k0, k1] of perch.keepOut ?? []) {
-    if (x + half + 10 > k0 && x - half - 10 < k1) return false;
+    if (x + half + 8 > k0 && x - half - 8 < k1) return false;
   }
   for (const o of flock.creatures) {
     if (o === self || o.perchId !== perch.id || o.mode === FLY || o.mode === LEAVE) continue;
-    if (Math.abs(x - o.perchX) < WING_HALF * PERCH_OPEN * (S + o.span) + 12) return false;
+    if (Math.abs(x - o.perchX) < HALF_LEN * (S + o.span) + 10) return false;
   }
   return true;
 }
@@ -260,7 +290,8 @@ export const butterflies: Animal<Butterfly> = {
 
   create: (c) => ({
     ...c, phase: rand(0, TAU), open: 1, glide: 0, glideUntil: 0, flutterX: 0, flutterY: 0,
-    mode: FLY, perchId: "", perchX: 0, perchEdge: 0, claimAt: 0, modeAt: 0, restUntil: rand(3, 12), lean: 0, bask: 0,
+    mode: FLY, perchId: "", perchX: 0, perchEdge: 0, claimAt: 0, modeAt: 0, restUntil: rand(0.5, 2.5), lean: 0, bask: 0,
+    fold: 0, face: 0, lift: 1, ground: 0,
   }),
 
   enter(b) {
@@ -268,6 +299,7 @@ export const butterflies: Animal<Butterfly> = {
     b.flutterY = 0;
     b.mode = FLY;
     b.perchId = "";
+    b.fold = 0;
   },
 
   /** Now and then, send the best-placed free butterfly to a spot on a ledge. */
@@ -281,8 +313,9 @@ export const butterflies: Animal<Butterfly> = {
       if (!c.leaving) active++;
       if (landing(c)) busy++;
     }
-    if (busy >= Math.min(CAP, Math.max(1, Math.floor(active * 0.15)))) return;
-    if (Math.random() > LAND_RATE * k.landing * dt) return;
+    if (busy >= Math.min(CAP, Math.max(2, Math.floor(active * 0.15)))) return;
+    // Busier just after the tab opens, so there's a fair chance to see one land.
+    if (Math.random() > LAND_RATE * k.landing * (t < 8 ? 3 : 1) * dt) return;
 
     const p = flock.pointer;
     let pick: { b: Butterfly; perch: Perch; x: number } | null = null;
@@ -291,13 +324,14 @@ export const butterflies: Animal<Butterfly> = {
       if (b.mode !== FLY || b.leaving || b.vanish > 0 || b.depth < NEAR) continue;
       if (t < b.restUntil || t < b.startledUntil) continue;
       if (b.x < 0 || b.x > flock.width || b.y < 0 || b.y > flock.height) continue;
-      if (p.inside && Math.hypot(b.x - p.x, b.y - p.y) < 160) continue;
+      if (p.inside && Math.hypot(b.x - p.x, b.y - p.y) < 120) continue;
       for (const perch of flock.perches) {
         const x = findSlot(flock, perch, b);
         if (x === null) continue;
-        const wy = seatY(flock, perch, b.span) - b.span;
+        const wy = seatY(flock, perch, b.span) - 0.6 * b.span;
         const d = Math.hypot(x - b.x, wy - b.y);
-        if (d > 0.6 * Math.max(flock.width, flock.height)) continue;
+        // Only ones already close by, so a landing is over in a few seconds.
+        if (d > 0.28 * Math.max(flock.width, flock.height)) continue;
         const away = Math.cos(angleDiff(b.heading, Math.atan2(wy - b.y, x - b.x))) < 0;
         const cost = d * (away ? 2 : 1);
         if (cost < bestCost) {
@@ -314,7 +348,7 @@ export const butterflies: Animal<Butterfly> = {
     b.perchEdge = perch.y;
     b.claimAt = t;
     b.modeAt = t;
-    b.lean = rand(-0.08, 0.08);
+    b.lean = rand(-0.04, 0.04);
   },
 
   update(b, flock, dt) {
@@ -329,18 +363,24 @@ export const butterflies: Animal<Butterfly> = {
       if (push) takeOff(b, flock, push[0], push[1], b.mode !== APPROACH);
     }
 
+    // Fold side-on while touching down and sitting, unfold to fly.
+    const foldTo = b.mode === PERCHED ? 1 : b.mode === DESCEND ? b.fold : 0;
+    b.fold += (foldTo - b.fold) * Math.min(1, dt * (b.mode === LEAVE ? 8 : 4));
+
     if (b.mode === PERCHED) {
-      // Sitting: pinned to the seat (which follows any change of size), basking.
+      // Sitting: pinned to the seat (which follows any change of size), wings folded up, resting.
       const perch = flock.perches.find((p) => p.id === b.perchId)!;
       b.x = b.perchX;
       b.y = seatY(flock, perch, S);
+      b.ground = groundY(flock, perch);
       b.vx = 0;
       b.vy = 0;
-      b.heading = UP + b.lean + 0.03 * Math.sin(0.7 * t + b.id);
-      b.bask += dt * (0.55 + 0.25 * Math.sin(0.23 * t + b.id));
+      b.heading = b.face + b.lean + 0.015 * Math.sin(0.6 * t + b.id);
+      // Every so often the folded wings part a little and close again.
+      b.bask += dt * (0.32 + 0.1 * Math.sin(0.19 * t + b.id));
       const w = 0.5 - 0.5 * Math.cos(b.bask);
-      const target = 0.12 + (PERCH_OPEN - 0.12) * smoothstep(0.1, 0.9, w);
-      b.open += (target - b.open) * Math.min(1, 3 * dt);
+      b.lift += (1 - 0.22 * smoothstep(0.75, 1, w) - b.lift) * Math.min(1, 4 * dt);
+      b.open = 0.1;
       b.glide = 1;
       return;
     }
@@ -349,34 +389,39 @@ export const butterflies: Animal<Butterfly> = {
     let flutterK = 1;
     let thrustK = 1;
     let separateK = 1;
-    let faceUp = false;
+    let faceSide = false;
 
     if (b.mode === APPROACH) {
-      // Fly to a point one span above the spot, slowing on arrival.
+      // Fly to a point just above the spot, slowing on arrival.
       const perch = flock.perches.find((p) => p.id === b.perchId)!;
       const wx = b.perchX;
-      const wy = seatY(flock, perch, S) - S;
+      const wy = seatY(flock, perch, S) - 0.6 * S;
       const d = Math.hypot(wx - b.x, wy - b.y);
-      flock.steer(b, Math.atan2(wy - b.y, wx - b.x), Math.min(1.1 * cruise, (cruise * d) / (2.5 * S)), 3);
+      flock.steer(b, Math.atan2(wy - b.y, wx - b.x), Math.min(1.7 * cruise, (cruise * d) / (0.6 * S)), 3);
       flutterK = 0.3;
       if (d < 0.5 * S || (b.y < wy && Math.abs(b.x - wx) < 0.5 * S)) {
         b.mode = DESCEND;
         b.modeAt = t;
+        // Sit facing the way it was heading along the ledge.
+        b.face = Math.abs(b.vx) > 4 ? (b.vx > 0 ? 0 : Math.PI) : Math.random() < 0.5 ? 0 : Math.PI;
       } else if (t - b.modeAt > 10) {
         takeOff(b, flock, 0, -1, false);
       }
     } else if (b.mode === DESCEND) {
-      // Settle onto the seat slowly, turning upright, wings still beating.
+      // Settle onto the seat slowly, turning side-on and folding the wings up as it gets close.
       const perch = flock.perches.find((p) => p.id === b.perchId)!;
       const sy = seatY(flock, perch, S);
       const d = Math.hypot(b.perchX - b.x, sy - b.y);
-      flock.steer(b, Math.atan2(sy - b.y, b.perchX - b.x), Math.min(0.35 * cruise, (cruise * d) / S), 4);
+      flock.steer(b, Math.atan2(sy - b.y, b.perchX - b.x), Math.min(0.7 * cruise, (cruise * d) / (0.25 * S)), 5);
       flutterK = 0.2;
-      thrustK = 0.5;
+      thrustK = 0.3;
       separateK = 0.3;
-      faceUp = true;
+      faceSide = true;
       b.glideUntil = 0;
-      if ((d < Math.max(2, 0.03 * S) && Math.hypot(b.vx, b.vy) < 0.2 * cruise) || t - b.modeAt > 5) {
+      b.fold = Math.max(b.fold, smoothstep(1.2 * S, 0.15 * S, d));
+      b.lift = 1;
+      b.ground = groundY(flock, perch);
+      if ((d < Math.max(3, 0.04 * S) && Math.hypot(b.vx, b.vy) < 0.4 * cruise) || t - b.modeAt > 2.5) {
         b.x = b.perchX;
         b.y = sy;
         b.vx = 0;
@@ -391,6 +436,7 @@ export const butterflies: Animal<Butterfly> = {
       // Lift away upward, easing back onto the stream's course.
       const s = smoothstep(0, 1.2, t - b.modeAt);
       flock.steer(b, UP + angleDiff(UP, flock.heading + b.bias * k.spread) * s, cruise, k.grip);
+      b.ground = 0;
       if (t - b.modeAt > 1.2) b.mode = FLY;
     } else {
       flock.steer(b, flock.heading + b.bias * k.spread, cruise, k.grip);
@@ -413,7 +459,7 @@ export const butterflies: Animal<Butterfly> = {
     flock.separate(b, k.separation * separateK);
     const speed = flock.move(b, dt, cruise * 2.2);
     if (flock.passed(b)) flock.reenter(b);
-    if (faceUp) flock.face(b, dt, 3, UP + b.lean);
+    if (faceSide) flock.face(b, dt, 3, b.face + b.lean);
     else if (speed > 12) flock.face(b, dt);
 
     if (b.mode === FLY && b.glide < 0.5 && t > b.glideUntil && speed > cruise * 0.5 && Math.random() < GLIDE * k.glide * dt) {
@@ -423,7 +469,7 @@ export const butterflies: Animal<Butterfly> = {
     const urgency = clamp(speed / (cruise * 2), 0, 1);
     b.phase += dt * TAU * FLAP_HZ * k.flapRate * (0.8 + 0.6 * urgency) * (1 - 0.9 * b.glide);
     const beat = Math.pow(0.5 + 0.5 * Math.cos(b.phase), 0.8);
-    b.open = 0.1 + 0.9 * (beat * (1 - b.glide) + 0.96 * b.glide);
+    b.open = (0.1 + 0.9 * (beat * (1 - b.glide) + 0.96 * b.glide)) * (1 - 0.9 * b.fold);
   },
 
   startle(b, dx, dy, strength, flock) {
@@ -442,12 +488,18 @@ export const butterflies: Animal<Butterfly> = {
     if (b.vanish >= 0.99) return;
     const S = b.span;
     const open = Math.max(0.08, b.open);
+    const fold = b.fold;
     const ink$ = pen.ink;
-    const settled = b.mode === PERCHED || b.mode === DESCEND;
-    // The body yaws a touch with each beat (not while sitting still).
-    const yaw = settled ? 0 : 0.06 * Math.sin(b.phase);
+    // The body yaws a touch with each beat (not once it's settling).
+    const yaw = fold > 0.05 ? 0 : 0.06 * Math.sin(b.phase);
     const pose = { x: b.x, y: b.y, heading: b.heading + yaw, span: S, depth: b.depth, id: b.id, vanish: b.vanish };
     const minBody = pen.cw * 0.4;
+    // Side-on, one side of the body is "up" the screen: the folded wings stand there; the other side's
+    // wing folds away behind them. Seen from above (fold 0) both sides show equally.
+    const up = Math.cos(pose.heading) >= 0 ? -1 : 1;
+    const upScale = open + (b.lift - open) * fold;
+    const downScale = open * (1 - fold);
+    const underside = fold > 0.5;
 
     pen.shape(pose, 0.75, (u, v) => {
       const av = Math.abs(v);
@@ -456,12 +508,15 @@ export const butterflies: Animal<Butterfly> = {
         ink(ink$, ...BODY, INK_BODY);
         return true;
       }
-      const vw = av / open;
+      const scale = Math.sign(v) === up ? upScale : downScale;
+      if (scale < 0.03) return false;
+      const vw = av / scale;
       let part: number;
       if (inLobe(FORE, u - FORE_ROOT, vw)) part = 0;
       else if (inLobe(HIND, u - HIND_ROOT, vw)) part = 1;
       else return false;
       const { t, r } = lobe;
+      if (underside) return paintUnderside(ink$, part, t, r);
       // Black margin with white spots on the forewing, dark roots and leading edge, shimmering blue.
       if (r > 0.86) {
         if (part === 0 && r < 0.95 && Math.abs(frac(t * 5) - 0.5) < 0.14) ink(ink$, 236, 240, 255, INK_SPOT);
@@ -470,16 +525,28 @@ export const butterflies: Animal<Butterfly> = {
       else if (part === 0 && t > 0.9) ink(ink$, 30, 50, 120, INK_DARK);
       else ink(ink$, 50 + 70 * r, 135 + 60 * r, 255, INK_SHIMMER);
       return true;
-    }, { light: 0.6 + 0.4 * b.open, tilt: b.open * 3 });
 
-    // Feelers with clubbed tips.
+    }, { light: underside ? 0.9 : 0.6 + 0.4 * b.open, tilt: b.open * 3 });
+
+    // Feelers with clubbed tips: one each side from above, both pointing forward and up side-on.
     const sway = 0.012 * Math.sin(pen.t * 3 + b.id);
     for (const side of [-1, 1]) {
-      pen.lineBody(pose, 0.16, 0.012 * side, 0.37 + sway, (0.12 + sway) * side, pen.contrast, S > 120 ? "o" : undefined);
+      const reach = underside ? up * (side < 0 ? 0.08 : 0.13) + sway * up : (0.12 + sway) * side;
+      pen.lineBody(pose, 0.16, underside ? 0.02 * up : 0.012 * side, 0.37 + sway, reach, pen.contrast, S > 120 ? "o" : undefined);
     }
 
-    // Downstrokes shed scales from the forewing tips (a sitting butterfly sheds nothing).
-    if (b.mode === PERCHED) return;
+    // Sitting: three thin legs down to the ledge.
+    if (fold > 0.7 && b.ground > 0) {
+      const at = { x: 0, y: 0 };
+      for (const u of [0.11, 0.05, -0.01]) {
+        pen.toWorld(pose, u, 0, at);
+        const reachX = Math.cos(pose.heading) * (u - 0.04) * S * 0.6;
+        pen.line(at.x, at.y, at.x + reachX, b.ground - 1, pen.contrast, b.depth);
+      }
+    }
+
+    // Downstrokes shed scales from the forewing tips (nothing once it's settling).
+    if (fold > 0.5) return;
     const stroke = Math.max(0, -Math.sin(b.phase)) * (1 - b.glide);
     const phi = FORE.from + (FORE.to - FORE.from) * FORE.peak;
     const tipU = FORE_ROOT + Math.sin(phi) * FORE.reach * 0.95;

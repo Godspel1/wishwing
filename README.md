@@ -4,7 +4,7 @@ A Chrome new tab page: butterflies made of text characters drift across a dark s
 
 ## What it does
 
-- **Butterflies** drift aside from the moving mouse pointer and scatter when you click empty sky. Now and then one lands on top of the clock or the search box and basks there until you type, come close with the mouse, or click it. Shyness and Landing, under Advanced, set how much.
+- **Butterflies** drift aside from the mouse pointer and scatter when you click empty sky. A few seconds after you open a tab, one lands on top of the clock or the search box, folds its wings up and rests there side-on, until you type, come close with the mouse, or click it. Shyness and Landing, under Advanced, set how much.
 - **Clock** with today's date, in your system's 12- or 24-hour style.
 - **A sky that follows the day**: night with twinkling stars, fog before dawn, morning mist, plain day, golden hour, sunset and twilight, blending smoothly from one to the next. Sunrise and sunset are estimated for a mid-northern latitude, since the extension doesn't ask for your location. Pin it to Light or Dark in the settings drawer.
 - **Greeting** by time of day ("Good morning, David"). Click the name to change it.

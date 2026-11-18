@@ -214,13 +214,13 @@ export class AnimalEngine {
 
   /**
    * Hand the flock this frame's pointer: where it is, how fast it moves, and `stir`, which rises
-   * at once when it moves and settles to 0 about a second after it stops or leaves.
+   * at once when it moves and fades over a few seconds once it rests (at once when it leaves).
    */
   private syncPointer(now: number, dt: number) {
     const i = this.input;
     const p = this.pointer;
     const idle = now - i.at;
-    const target = i.inside ? Math.exp(-idle / 900) : 0;
+    const target = i.inside ? Math.exp(-idle / 2500) : 0;
     p.stir += (target - p.stir) * (1 - Math.exp(-dt / (target > p.stir ? 0.05 : 0.25)));
     const damp = Math.exp(-idle / 160);
     p.vx = i.vx * damp;
