@@ -6,12 +6,20 @@
  * to three pulses; a flash nudges nearby rhythms forward (pulse-coupled, scaled by Sync), so at high
  * Sync waves of light travel through the swarm. A click sets off a ripple of flashes.
  *
- * Drawn all at once (drawAll) so overlapping halos add up: a light field over the cells, read out as
- * glow glyphs, with a lit cell for each lantern on top.
+ * They're curious about the mouse pointer: they drift over and circle it, flashing back when it's
+ * close, but a fast swipe scatters them. Now and then one settles on the top of the search box or
+ * the clock and goes on blinking there.
+ *
+ * Each light is a soft round glow (Pen.glow), warm yellow, that adds up where they gather.
  */
-import { SHARED_TUNING, type Animal, type Creature, type Flock } from "../flock";
+import { SHARED_TUNING, type Animal, type Creature, type Flock, type Perch } from "../flock";
 import type { RGB } from "../ink";
 import { angleDiff, clamp, rand, smoothstep, TAU } from "../math";
+
+const FLY = 0;
+const APPROACH = 1;
+const PERCHED = 2;
+const LEAVE = 3;
 
 interface Firefly extends Creature {
   /** Heading of its random walk. */
@@ -27,10 +35,23 @@ interface Firefly extends Creature {
   pulses: number;
   /** Brightness right now, 0 → 1. */
   glow: number;
-  /** A flash set off by a click, due at this time. */
+  /** A flash set off by a click or the pointer, due at this time. */
   flashPending: number;
   /** Phase of its bob. */
   bob: number;
+  /** Circling the pointer: which way round (±1), how far out (px), and how much it cares (0 → 1). */
+  orbit: number;
+  ring: number;
+  interest: number;
+  /** FLY, APPROACH, PERCHED or LEAVE. */
+  mode: number;
+  perchId: string;
+  perchX: number;
+  /** When it picked its spot, and when the current mode began. */
+  claimAt: number;
+  modeAt: number;
+  /** Perched: leaves then. Flying: won't land again before then. */
+  restUntil: number;
 }
 
 const DEFAULTS = {
@@ -38,31 +59,32 @@ const DEFAULTS = {
   farthest: 0.3,
   farBias: 1.2,
   separation: 120,
-  sparkle: 0.06,
   fog: 0.7,
-  trail: 1.2,
-  trailFade: 1.4,
+  trail: 0,
   grid: 0.8,
   blinkRate: 1,
   glow: 1,
   sync: 0.25,
   wander: 1,
+  curiosity: 1,
+  landing: 1,
 };
 
-/** Lantern and halo colours on a dark sky and on a light one (deeper, so they read on cream). */
-const CORE_DARK: RGB = [214, 255, 120];
-const CORE_LIGHT: RGB = [178, 190, 30];
-const HALO_DARK: RGB = [150, 230, 70];
-const HALO_LIGHT: RGB = [130, 142, 24];
+/** Warm firefly light: a near-white core in a yellow glow; deeper amber so it shows on a pale sky. */
+const CORE_DARK: RGB = [255, 250, 210];
+const GLOW_DARK: RGB = [255, 206, 84];
+const CORE_LIGHT: RGB = [255, 214, 110];
+const GLOW_LIGHT: RGB = [232, 160, 40];
+/** Their bodies, seen as specks when unlit on a pale sky. */
 const BODY: RGB = [60, 45, 30];
-const HALO_GLYPHS = " .:+*";
+
+/** Most that sit on ledges at once, and landings per second at Landing 1. */
+const PERCH_CAP = 4;
+const LAND_RATE = 0.3;
 
 const mix = (a: RGB, b: RGB, k: number): RGB => [a[0] + (b[0] - a[0]) * k, a[1] + (b[1] - a[1]) * k, a[2] + (b[2] - a[2]) * k];
 /** Roughly normal, mean 0, spread 1. */
 const randn = () => (Math.random() + Math.random() + Math.random() - 1.5) * 2;
-
-/** Light field for the halos, one value per cell, reused between frames. */
-let field = new Float32Array(0);
 
 function flash(f: Firefly, flock: Flock<Firefly>, sync: number) {
   const t = flock.time;
@@ -80,29 +102,48 @@ function flash(f: Firefly, flock: Flock<Firefly>, sync: number) {
   }
 }
 
+/** Flash soon (sooner than any flash already due). */
+const flashSoon = (f: Firefly, at: number) => (f.flashPending = Math.min(f.flashPending, at));
+
+/** Where a firefly sits on a ledge: just on top of the edge. */
+const seatY = (perch: Perch) => perch.y - 3;
+
+function leave(f: Firefly, t: number) {
+  f.mode = LEAVE;
+  f.modeAt = t;
+  f.perchId = "";
+  f.restUntil = t + rand(12, 30);
+  f.wander = -Math.PI / 2 + rand(-0.8, 0.8);
+  f.vy -= 20;
+}
+
 export const fireflies: Animal<Firefly> = {
   key: "fireflies",
   label: "Fireflies",
-  swatch: [200, 240, 80],
+  swatch: [255, 206, 84],
   defaults: DEFAULTS,
-  hide: ["corner", "direction", "sway", "spread", "grip", "shimmer"],
+  hide: ["corner", "direction", "sway", "spread", "grip", "shimmer", "sparkle", "avoid"],
   controls: [
     ["Light", [
       { key: "blinkRate", label: "Blink rate", min: 0.2, max: 3, step: 0.05, hint: "How often they flash." },
       { key: "glow", label: "Glow", min: 0, max: 2, step: 0.05, hint: "How far their light spreads." },
       { key: "sync", label: "Sync", min: 0, max: 1, step: 0.01, hint: "How much a flash sets off its neighbours. High values send waves of light through the swarm." },
       { key: "wander", label: "Wander", min: 0, max: 2, step: 0.05, hint: "How much their paths meander." },
+      { key: "curiosity", label: "Curiosity", min: 0, max: 3, step: 0.05, hint: "How strongly they're drawn to the mouse pointer. 0 ignores it." },
+      { key: "landing", label: "Landing", min: 0, max: 3, step: 0.05, hint: "How often they settle on the clock and the search box. 0 never." },
     ]],
   ],
   area: 26000,
   max: 140,
   scale: 0.14,
   speed: 24,
-  trail: { light: [120, 140, 30], dark: [176, 236, 92] },
+  trail: { light: [232, 160, 40], dark: [255, 206, 84] },
 
   create: (c) => ({
     ...c, wander: rand(0, TAU), clock: Math.random(), period: rand(2.5, 6), flashAt: -10, pulsesLeft: 0,
     pulses: 1 + Math.floor(Math.random() * 3), glow: 0, flashPending: Infinity, bob: rand(0, TAU),
+    orbit: Math.random() < 0.5 ? -1 : 1, ring: rand(36, 110), interest: Math.random() < 0.65 ? rand(0.6, 1) : rand(0, 0.2),
+    mode: FLY, perchId: "", perchX: 0, claimAt: 0, modeAt: 0, restUntil: rand(1, 6),
   }),
 
   /** Anywhere on screen: it's dark between flashes, so nobody sees it arrive. */
@@ -115,6 +156,39 @@ export const fireflies: Animal<Firefly> = {
     f.heading = f.wander;
     f.clock = Math.random();
     f.glow = 0;
+    f.mode = FLY;
+    f.perchId = "";
+  },
+
+  /** Now and then send a free firefly to a spot on a ledge. */
+  prepare(flock, dt) {
+    const k = flock.tuning as typeof DEFAULTS;
+    const t = flock.time;
+    if (!flock.perches.length || t < flock.quietUntil || k.landing <= 0) return;
+    let busy = 0;
+    for (const c of flock.creatures) if (c.mode === APPROACH || c.mode === PERCHED) busy++;
+    if (busy >= PERCH_CAP || Math.random() > LAND_RATE * k.landing * dt) return;
+
+    const p = flock.pointer;
+    const free = flock.creatures.filter((f) =>
+      f.mode === FLY && !f.leaving && f.vanish === 0 && f.depth > 0.5 && t > f.restUntil &&
+      f.x > 0 && f.x < flock.width && f.y > 0 && f.y < flock.height &&
+      !(p.inside && Math.hypot(f.x - p.x, f.y - p.y) < 160));
+    if (!free.length) return;
+    const f = free[Math.floor(Math.random() * free.length)];
+    const perch = flock.perches[Math.floor(Math.random() * flock.perches.length)];
+    // A spot not too close to anyone already there.
+    for (let tries = 0; tries < 6; tries++) {
+      const x = rand(perch.x0 + 8, perch.x1 - 8);
+      const crowded = flock.creatures.some((o) => o.perchId === perch.id && Math.abs(o.perchX - x) < 34);
+      if (crowded) continue;
+      f.mode = APPROACH;
+      f.perchId = perch.id;
+      f.perchX = x;
+      f.claimAt = t;
+      f.modeAt = t;
+      return;
+    }
   },
 
   update(f, flock, dt) {
@@ -122,34 +196,90 @@ export const fireflies: Animal<Firefly> = {
     const t = flock.time;
     const { width: W, height: H } = flock;
     const cruise = flock.cruise(f);
+    const p = flock.pointer;
 
-    // Meander, bending back toward the middle near the edges.
-    f.wander += randn() * 1.4 * k.wander * Math.sqrt(dt);
-    const m = 0.1 * Math.min(W, H);
-    const into = Math.max(m - f.x, f.x - (W - m), m - f.y, f.y - (H - m), 0);
-    if (into > 0) f.wander += angleDiff(f.wander, Math.atan2(H / 2 - f.y, W / 2 - f.x)) * clamp(into / m, 0, 1) * 2 * dt;
-
-    const acc = flock.begin();
-    flock.steer(f, f.wander, cruise, 1.2);
-    acc.y += 8 * Math.sin(1.3 * t + f.bob);
-    // A little lift as it lights up (the "J" a real firefly draws).
-    acc.y -= 40 * f.depth * f.glow;
-    flock.separate(f, k.separation, 1.6);
-    flock.avoidPointer(f, k.avoid * 0.3);
-    const speed = flock.move(f, dt, cruise * 3);
-    if (speed > 2) flock.face(f, dt, 4);
-
-    // Strayed well off screen: come back in from an edge.
-    const lost = 2 * f.span + 20;
-    if (f.x < -lost || f.x > W + lost || f.y < -lost || f.y > H + lost) {
-      if (f.leaving) {
-        f.gone = true;
-        return;
+    // Give up a spot when disturbed, when the pointer comes for it, or after a rest.
+    if (f.mode === APPROACH || f.mode === PERCHED) {
+      const perch = flock.perches.find((q) => q.id === f.perchId);
+      const near = p.inside && Math.hypot(p.x - f.x, p.y - f.y) < 90;
+      const gone = !perch || f.perchX < perch.x0 || f.perchX > perch.x1;
+      if (gone || near || f.leaving || flock.disturbedAt > f.claimAt || k.landing <= 0 ||
+          (f.mode === PERCHED && t > f.restUntil) || (f.mode === APPROACH && t - f.modeAt > 14)) {
+        leave(f, t);
       }
-      fireflies.enter!(f, flock);
     }
 
-    // Blink.
+    if (f.mode === PERCHED) {
+      const perch = flock.perches.find((q) => q.id === f.perchId)!;
+      f.x = f.perchX;
+      f.y = seatY(perch);
+      f.vx = 0;
+      f.vy = 0;
+    } else {
+      const acc = flock.begin();
+      if (f.mode === APPROACH) {
+        const perch = flock.perches.find((q) => q.id === f.perchId)!;
+        const sy = seatY(perch);
+        const d = Math.hypot(f.perchX - f.x, sy - f.y);
+        flock.steer(f, Math.atan2(sy - f.y, f.perchX - f.x), Math.min(2.2 * cruise, 6 + d * 0.8), 3);
+        if (d < 2.5) {
+          f.mode = PERCHED;
+          f.modeAt = t;
+          f.restUntil = t + rand(10, 30);
+        }
+      } else {
+        // Meander, bending back toward the middle near the edges.
+        f.wander += randn() * 1.4 * k.wander * Math.sqrt(dt);
+        const m = 0.1 * Math.min(W, H);
+        const into = Math.max(m - f.x, f.x - (W - m), m - f.y, f.y - (H - m), 0);
+        if (into > 0) f.wander += angleDiff(f.wander, Math.atan2(H / 2 - f.y, W / 2 - f.x)) * clamp(into / m, 0, 1) * 2 * dt;
+        flock.steer(f, f.wander, cruise, 1.2);
+        if (f.mode === LEAVE && t - f.modeAt > 1.5) f.mode = FLY;
+
+        // Curious about the pointer: circle it and flash back, unless it sweeps through fast.
+        if (p.inside && k.curiosity > 0) {
+          const dx = p.x - f.x;
+          const dy = p.y - f.y;
+          const d = Math.hypot(dx, dy) || 1;
+          const R = 560 * (0.5 + 0.5 * f.depth);
+          const sweep = Math.hypot(p.vx, p.vy);
+          if (sweep > 1100 && d < 170) {
+            const push = 900 * (1 - d / 170);
+            acc.x -= (dx / d) * push;
+            acc.y -= (dy / d) * push;
+            if (t - f.flashAt > 0.6) flashSoon(f, t + rand(0, 0.15));
+          } else if (d < R && f.interest > 0.3) {
+            // Head in while far, then circle at its own distance.
+            const out = clamp((d - f.ring) / f.ring, -1, 3);
+            const round = 0.9 / (1 + Math.max(0, out));
+            const ux = (-dy / d) * f.orbit * round + (dx / d) * out;
+            const uy = (dx / d) * f.orbit * round + (dy / d) * out;
+            const pull = Math.pow(1 - d / R, 0.5) * k.curiosity * f.interest;
+            flock.steer(f, Math.atan2(uy, ux), cruise * (1.4 + 2.2 * pull), 3 * pull);
+            if (d < f.ring * 1.6 && t - f.flashAt > 1 && Math.random() < 1.2 * dt) flashSoon(f, t + rand(0.05, 0.4));
+          }
+        }
+      }
+
+      acc.y += 8 * Math.sin(1.3 * t + f.bob);
+      // A little lift as it lights up (the "J" a real firefly draws).
+      if (f.mode !== APPROACH) acc.y -= 40 * f.depth * f.glow;
+      flock.separate(f, k.separation * (f.mode === APPROACH ? 0.2 : 1), 1.6);
+      const speed = flock.move(f, dt, cruise * 3);
+      if (speed > 2) flock.face(f, dt, 4);
+
+      // Strayed well off screen: come back in somewhere else.
+      const lost = 2 * f.span + 20;
+      if (f.x < -lost || f.x > W + lost || f.y < -lost || f.y > H + lost) {
+        if (f.leaving) {
+          f.gone = true;
+          return;
+        }
+        fireflies.enter!(f, flock);
+      }
+    }
+
+    // Blink (sitting ones too).
     if (!f.leaving) {
       f.clock += (dt * k.blinkRate) / f.period;
       if (f.clock >= 1 || t >= f.flashPending) flash(f, flock, k.sync);
@@ -164,66 +294,26 @@ export const fireflies: Animal<Firefly> = {
 
   /** A click pushes them a little and sets off a ripple of flashes spreading out from it. */
   startle(f, dx, dy, strength, flock) {
+    if (f.mode === PERCHED || f.mode === APPROACH) leave(f, flock.time);
     f.vx += dx * strength * 120 * f.depth;
     f.vy += dy * strength * 120 * f.depth;
-    if (strength > 0.15) f.flashPending = flock.time + (1 - strength) * 0.5;
+    if (strength > 0.15) flashSoon(f, flock.time + (1 - strength) * 0.5);
   },
 
   drawAll(flock, pen) {
     const k = flock.tuning as typeof DEFAULTS;
-    const { cols, rows, cw, ch } = pen;
-    if (field.length !== cols * rows) field = new Float32Array(cols * rows);
-    else field.fill(0);
     const dark = pen.dark;
     const core = mix(CORE_LIGHT, CORE_DARK, dark);
-    const halo = mix(HALO_LIGHT, HALO_DARK, dark);
-    const haloK = 0.6 + 0.4 * dark;
-
-    // Unlit bodies: faint specks, under everything else.
+    const glow = mix(GLOW_LIGHT, GLOW_DARK, dark);
     for (const f of flock.creatures) {
-      if (f.glow < 0.3 && f.vanish < 0.9) pen.dot(f.x, f.y, ".", BODY, f.depth, pen.fogFor(f.depth, Math.max(f.vanish, 0.35)));
-    }
-
-    /** How bright a firefly shows: distance dims it, but only half as much as it fades other animals. */
-    const shine = (f: Firefly) => f.glow * (1 - f.vanish) * (1 - 0.5 * pen.fogFor(f.depth));
-
-    // Halos: every lit firefly adds light to the cells around it.
-    for (const f of flock.creatures) {
-      const L = shine(f);
-      if (L < 0.02) continue;
-      const R = (1.2 + 3.2 * k.glow) * cw * (0.5 + 0.5 * f.depth);
-      const c0 = Math.max(0, Math.floor((f.x - R) / cw));
-      const c1 = Math.min(cols - 1, Math.floor((f.x + R) / cw));
-      const r0 = Math.max(0, Math.floor((f.y - R) / ch));
-      const r1 = Math.min(rows - 1, Math.floor((f.y + R) / ch));
-      for (let r = r0; r <= r1; r++) {
-        for (let c = c0; c <= c1; c++) {
-          const d = Math.hypot((c + 0.5) * cw - f.x, (r + 0.5) * ch - f.y);
-          if (d < R) field[r * cols + c] += L * (1 - d / R) ** 2 * haloK;
-        }
+      // Distance dims a firefly, but only half as much as it fades other animals.
+      const L = f.glow * (1 - f.vanish) * (1 - 0.5 * pen.fogFor(f.depth));
+      if (L > 0.02) {
+        const radius = (6 + 16 * k.glow) * (0.45 + 0.55 * f.depth) * (0.75 + 0.25 * L);
+        pen.glow(f.x, f.y, radius, glow, core, L * (0.75 + 0.25 * dark));
       }
-      pen.shed(f.x, f.y, 0.06 * L);
-    }
-    for (let i = 0; i < field.length; i++) {
-      const light = field[i];
-      if (light < 0.035) continue;
-      const glyph = HALO_GLYPHS[clamp(Math.floor(light * HALO_GLYPHS.length * 1.6), 1, HALO_GLYPHS.length - 1)];
-      pen.dot(((i % cols) + 0.5) * cw, (((i / cols) | 0) + 0.5) * ch, glyph, halo, 1, 1 - Math.min(1, 2.4 * light));
-    }
-
-    // Lanterns: one lit cell each, with a dark head just ahead of it on the near ones.
-    for (const f of flock.creatures) {
-      const L = shine(f);
-      if (L < 0.3) continue;
-      const lit = mix(halo, core, L);
-      const fog = (1 - L) * 0.6;
-      // A bright, nearly white glyph on a block of the lantern's colour.
-      const hot = mix(lit, [255, 255, 225], 0.55 * L * dark);
-      pen.spot(f.x, f.y, "*", hot, [lit[0] * 0.75, lit[1] * 0.75, lit[2] * 0.75], f.depth, fog);
-      if (f.span >= 1.2 * cw) {
-        const reach = Math.max(cw, 0.6 * f.span);
-        pen.dot(f.x + Math.cos(f.heading) * reach, f.y + Math.sin(f.heading) * reach, "o", BODY, f.depth);
-      }
+      // Unlit, they're little dark beetles: a speck, only noticeable on a pale sky.
+      if (L < 0.3 && dark < 0.5 && f.vanish < 0.9) pen.dot(f.x, f.y, ".", BODY, f.depth);
     }
   },
 };

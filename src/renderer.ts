@@ -208,6 +208,14 @@ export class Pen {
     this.r.shed(x, y, amount);
   }
 
+  /**
+   * A soft round light at (x, y), `radius` px, drawn over the cells: a `core` colour at the centre
+   * fading through `color` to nothing. Additive on a dark sky, so overlapping lights add up.
+   */
+  glow(x: number, y: number, radius: number, color: RGB, core: RGB, alpha: number) {
+    this.r.glow(x, y, radius, color, core, alpha);
+  }
+
   /** Cell index under (x, y), or -1 off screen. */
   cellIndex(x: number, y: number) {
     return this.r.cellIndex(x, y);
@@ -239,6 +247,8 @@ export class AsciiRenderer {
   private mistShape: HTMLCanvasElement = document.createElement("canvas");
   private mistTinted: HTMLCanvasElement = document.createElement("canvas");
   private mistColor = "";
+  /** Soft lights queued by the animals this frame (see Pen.glow). */
+  private glows: { x: number; y: number; r: number; color: RGB; core: RGB; a: number }[] = [];
 
   private energy = new Float32Array(0);
   private energyTmp = new Float32Array(0);
@@ -519,6 +529,7 @@ export class AsciiRenderer {
     this.diffuse(dt);
 
     this.cellFlag.fill(CELL_NONE);
+    this.glows.length = 0;
     const animal = flock.animal;
     if (animal.drawAll) animal.drawAll(flock, this.pen);
     else if (animal.draw) for (const c of flock.creatures) animal.draw(c, this.pen, flock);
@@ -537,6 +548,7 @@ export class AsciiRenderer {
     this.drawMist(t, 7, mist * 0.9, 0);
     this.drawTrail(t);
     this.drawCells();
+    this.drawGlows();
     // A thinner, faster layer in front, so near creatures drift through it too.
     this.drawMist(t + 400, 13, mist * 0.35, this.height * 0.06);
   }
@@ -548,6 +560,34 @@ export class AsciiRenderer {
     const r = Math.floor(y / this.ch);
     if (c < 0 || r < 0 || c >= this.cols || r >= this.rows) return -1;
     return r * this.cols + c;
+  }
+
+  glow(x: number, y: number, r: number, color: RGB, core: RGB, a: number) {
+    if (a > 0.01 && r > 0.5) this.glows.push({ x, y, r, color, core, a: Math.min(1, a) });
+  }
+
+  private drawGlows() {
+    const { ctx, glows } = this;
+    if (!glows.length) return;
+    const dark = this.pen.dark;
+    // Light adds up on a dark sky; on a pale one it has to be painted on.
+    ctx.globalCompositeOperation = dark > 0.4 ? "lighter" : "source-over";
+    const rgba = (c: RGB, a: number) => {
+      const [r, g, b] = this.turn(c[0], c[1], c[2]);
+      return `rgba(${clamp(Math.round(r), 0, 255)},${clamp(Math.round(g), 0, 255)},${clamp(Math.round(b), 0, 255)},${a.toFixed(3)})`;
+    };
+    for (const l of glows) {
+      const grad = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
+      grad.addColorStop(0, rgba(l.core, l.a));
+      grad.addColorStop(0.1, rgba(l.core, l.a * 0.85));
+      grad.addColorStop(0.22, rgba(l.color, l.a * 0.55));
+      grad.addColorStop(0.5, rgba(l.color, l.a * 0.16));
+      grad.addColorStop(1, rgba(l.color, 0));
+      ctx.fillStyle = grad;
+      ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+    }
+    ctx.globalCompositeOperation = "source-over";
+    glows.length = 0;
   }
 
   shed(x: number, y: number, amount: number) {
