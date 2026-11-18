@@ -1,3 +1,6 @@
+// Bundled so the page works offline and doesn't flash while fonts load.
+import "@fontsource-variable/geist";
+import "@fontsource-variable/geist-mono";
 import { mountTweakPanel, type Control, type ControlKit } from "./panel";
 import { ANIMALS, AnimalEngine, SHARED_CONTROLS, type KnobSpec, type Tuning } from "./src";
 import { mountClock, mountComposer, mountGreeting, mountShortcuts } from "./ui";
