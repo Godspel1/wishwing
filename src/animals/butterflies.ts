@@ -13,7 +13,7 @@
  * the wings held flat. Now and then one lands on the page (see below).
  */
 import { SHARED_TUNING, type Animal, type Creature, type Flock, type Perch } from "../flock";
-import { INK_BODY, INK_DARK, INK_SCALE, INK_SHIMMER, INK_SPOT, ink, type Ink } from "../ink";
+import { INK_BODY, INK_DARK, INK_SHIMMER, INK_SPOT, ink } from "../ink";
 import { angleDiff, clamp, frac, rand, smoothstep, TAU } from "../math";
 
 interface Lobe {
@@ -36,23 +36,6 @@ const HIND: Lobe = { from: -1.45, to: 0.15, reach: 0.44, peak: 0.48, round: 0.42
 const FORE_ROOT = 0.06;
 const HIND_ROOT = -0.02;
 const BODY: [number, number, number] = [30, 30, 42];
-/** Eyespots on the underside: [0 forewing / 1 hindwing, t across the fan, r out from the root]. */
-const EYESPOTS: [number, number, number][] = [[0, 0.5, 0.62], [1, 0.3, 0.56], [1, 0.66, 0.6]];
-
-/** A wing's underside, seen when it sits with them folded: warm browns, an ochre line, dark margins, ringed eyespots. */
-function paintUnderside(out: Ink, part: number, t: number, r: number) {
-  if (r > 0.9) return ink(out, 62, 42, 28, INK_DARK);
-  for (const [sp, st, sr] of EYESPOTS) {
-    if (sp !== part) continue;
-    const d = Math.hypot((t - st) * 2.2, r - sr);
-    if (d < 0.06) return ink(out, 238, 228, 200, INK_SPOT);
-    if (d < 0.12) return ink(out, 38, 28, 20, INK_DARK);
-    if (d < 0.18) return ink(out, 214, 168, 74, INK_SCALE);
-  }
-  if (r < 0.1) return ink(out, 72, 52, 36, INK_DARK);
-  if (Math.abs(r - 0.42) < 0.035) return ink(out, 176, 136, 80, INK_SCALE);
-  return ink(out, 112 + 34 * r, 80 + 22 * r, 52 + 10 * r, INK_SCALE);
-}
 const FLAP_HZ = 2.6;
 const GLIDE = 0.35;
 const FLUTTER = 1.3;
@@ -90,7 +73,7 @@ function inLobe(l: Lobe, du: number, vw: number) {
  * Landing. Now and then a near butterfly picks a free spot on a ledge (the top of the search box or
  * the clock) and flies over. As it touches down it turns side-on, as you'd see a butterfly resting
  * on a ledge at eye level: body level along the edge, standing on its legs, wings folded together
- * straight up, showing their brown, eye-spotted undersides. Now and then it flexes them. It takes
+ * straight up, still showing their blue. Now and then it flexes them. It takes
  * off when the user types, the pointer comes close, it's clicked, its spot stops fitting, or after
  * a while. Which spots are taken is read off the flock itself, so nothing can go stale.
  */
@@ -499,7 +482,7 @@ export const butterflies: Animal<Butterfly> = {
     const up = Math.cos(pose.heading) >= 0 ? -1 : 1;
     const upScale = open + (b.lift - open) * fold;
     const downScale = open * (1 - fold);
-    const underside = fold > 0.5;
+    const sideOn = fold > 0.5;
 
     pen.shape(pose, 0.75, (u, v) => {
       const av = Math.abs(v);
@@ -516,7 +499,6 @@ export const butterflies: Animal<Butterfly> = {
       else if (inLobe(HIND, u - HIND_ROOT, vw)) part = 1;
       else return false;
       const { t, r } = lobe;
-      if (underside) return paintUnderside(ink$, part, t, r);
       // Black margin with white spots on the forewing, dark roots and leading edge, shimmering blue.
       if (r > 0.86) {
         if (part === 0 && r < 0.95 && Math.abs(frac(t * 5) - 0.5) < 0.14) ink(ink$, 236, 240, 255, INK_SPOT);
@@ -526,13 +508,13 @@ export const butterflies: Animal<Butterfly> = {
       else ink(ink$, 50 + 70 * r, 135 + 60 * r, 255, INK_SHIMMER);
       return true;
 
-    }, { light: underside ? 0.9 : 0.6 + 0.4 * b.open, tilt: b.open * 3 });
+    }, { light: sideOn ? 0.9 : 0.6 + 0.4 * b.open, tilt: sideOn ? 1.5 : b.open * 3 });
 
     // Feelers with clubbed tips: one each side from above, both pointing forward and up side-on.
     const sway = 0.012 * Math.sin(pen.t * 3 + b.id);
     for (const side of [-1, 1]) {
-      const reach = underside ? up * (side < 0 ? 0.08 : 0.13) + sway * up : (0.12 + sway) * side;
-      pen.lineBody(pose, 0.16, underside ? 0.02 * up : 0.012 * side, 0.37 + sway, reach, pen.contrast, S > 120 ? "o" : undefined);
+      const reach = sideOn ? up * (side < 0 ? 0.08 : 0.13) + sway * up : (0.12 + sway) * side;
+      pen.lineBody(pose, 0.16, sideOn ? 0.02 * up : 0.012 * side, 0.37 + sway, reach, pen.contrast, S > 120 ? "o" : undefined);
     }
 
     // Sitting: three thin legs down to the ledge.
