@@ -1,5 +1,5 @@
 import { ANIMALS, type AnimalKey } from "./animals";
-import { Flock, type Animal, type PointerState, type Tuning } from "./flock";
+import { Flock, type Animal, type Perch, type PointerState, type Tuning } from "./flock";
 import { clamp } from "./math";
 import { AsciiRenderer, THEME_SKIES, type Theme } from "./renderer";
 import type { Sky } from "./sky";
@@ -36,6 +36,9 @@ export class AnimalEngine {
   private input = { x: 0, y: 0, vx: 0, vy: 0, at: -Infinity, last: 0, inside: false };
   /** What the flock sees; shared with every Flock (see wire()). */
   private pointer: PointerState = { x: 0, y: 0, vx: 0, vy: 0, stir: 0, inside: false };
+  /** Landing ledges in canvas px, kept across setAnimal(). */
+  private perches: Perch[] = [];
+  private size = { width: 0, height: 0 };
 
   /** count pins the population; tuning overrides any of the animal's defaults. */
   constructor(
@@ -109,7 +112,28 @@ export class AnimalEngine {
   /** Hand a new Flock the engine's lasting state, so switching animals keeps it. */
   private wire<F extends Flock<any>>(flock: F): F {
     flock.pointer = this.pointer;
+    // reducedMotion isn't set yet when the constructor wires the first flock.
+    flock.perches = this.reducedMotion?.matches ? [] : this.perches;
+    flock.cellH = this.renderer?.ch ?? flock.cellH;
     return flock;
+  }
+
+  /** Where creatures may land, in page (client) px. */
+  setPerches(perches: Perch[]) {
+    const { left, top } = this.rect;
+    this.perches = perches.map((p) => ({
+      ...p,
+      x0: p.x0 - left,
+      x1: p.x1 - left,
+      y: p.y - top,
+      keepOut: p.keepOut?.map(([a, b]): [number, number] => [a - left, b - left]),
+    }));
+    this.flock.perches = this.reducedMotion.matches ? [] : this.perches;
+  }
+
+  /** Shoo off anything that has landed (the user is typing, say), and hold off landing for a while. */
+  disturb() {
+    this.flock.disturb();
   }
 
   set(key: string, value: number | boolean) {
@@ -138,6 +162,11 @@ export class AnimalEngine {
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.renderer.resize(rect.width, rect.height, dpr);
     this.flock.resize(rect.width, rect.height);
+    this.flock.cellH = this.renderer.ch;
+    // A real resize moves the ledges: everyone takes off (the page re-sends perches afterwards).
+    const resized = this.size.width > 0 && (rect.width !== this.size.width || rect.height !== this.size.height);
+    this.size = { width: rect.width, height: rect.height };
+    if (resized) this.flock.disturb(2);
     if (this.reducedMotion.matches) this.drawStill();
   }
 
@@ -173,7 +202,9 @@ export class AnimalEngine {
   }
 
   private onMotionPreference = () => {
+    this.flock.perches = this.reducedMotion.matches ? [] : this.perches;
     if (this.reducedMotion.matches) {
+      this.flock.disturb();
       cancelAnimationFrame(this.raf);
       this.drawStill();
     } else {

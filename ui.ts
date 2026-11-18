@@ -1,5 +1,5 @@
 /**
- * Page chrome shared by every scene: greeting, clock, and segmented choices.
+ * Page chrome shared by every scene: greeting, clock, landing ledges, and segmented choices.
  * The search box lives in search.ts, the shortcut pills in shortcuts.ts.
  */
 
@@ -94,6 +94,57 @@ export function mountClock() {
 
   update();
   setInterval(update, 1000);
+}
+
+/** A ledge creatures can land on (client px); the engine's Perch. */
+export interface Ledge {
+  id: string;
+  x0: number;
+  x1: number;
+  y: number;
+  keepOut?: [number, number][];
+}
+
+let metrics: CanvasRenderingContext2D | null = null;
+
+/**
+ * Where butterflies may land: the top edge of the search box (except under the greeting and clock,
+ * whose text would cover them) and the top of the clock's digits.
+ */
+export function measureLedges(): Ledge[] {
+  const ledges: Ledge[] = [];
+  const composer = document.querySelector<HTMLElement>(".composer");
+  const time = document.querySelector<HTMLElement>(".clock-time");
+  const greeting = document.querySelector<HTMLElement>(".greeting");
+
+  const above: [number, number][] = [];
+  for (const el of [time, greeting]) {
+    const r = el?.getBoundingClientRect();
+    if (r && r.width) above.push([r.left - 12, r.right + 12]);
+  }
+
+  if (composer) {
+    const r = composer.getBoundingClientRect();
+    const radius = parseFloat(getComputedStyle(composer).borderTopLeftRadius) || 0;
+    ledges.push({ id: "composer", x0: r.left + radius, x1: r.right - radius, y: r.top, keepOut: above });
+  }
+
+  if (time && time.textContent) {
+    // The digits' tops, not the line box (line-height 1 leaves room above the glyphs).
+    metrics ??= document.createElement("canvas").getContext("2d");
+    const r = time.getBoundingClientRect();
+    const cs = getComputedStyle(time);
+    let top = r.top;
+    if (metrics) {
+      metrics.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+      const m = metrics.measureText("0123456789");
+      const baseline = r.top + (r.height - (m.fontBoundingBoxAscent + m.fontBoundingBoxDescent)) / 2 + m.fontBoundingBoxAscent;
+      top = baseline - m.actualBoundingBoxAscent;
+    }
+    const period = time.querySelector<HTMLElement>(".period")?.getBoundingClientRect();
+    ledges.push({ id: "clock", x0: r.left, x1: period && period.width ? period.left - 4 : r.right, y: top - 6 });
+  }
+  return ledges;
 }
 
 export interface Choice {

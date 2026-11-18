@@ -51,6 +51,18 @@ export interface PointerState {
   inside: boolean;
 }
 
+/**
+ * A ledge creatures can land on: the top edge of the search box, the top of the clock (canvas px).
+ * `keepOut` lists x-ranges their wings must not cover (the greeting just above the search box).
+ */
+export interface Perch {
+  id: string;
+  x0: number;
+  x1: number;
+  y: number;
+  keepOut?: [number, number][];
+}
+
 /** Strength of avoidPointer at Shyness 1, px/s². */
 const AVOID_ACCEL = 600;
 
@@ -209,6 +221,13 @@ export class Flock<C extends Creature = Creature> {
   readonly acc = { x: 0, y: 0 };
   /** The pointer, shared with the engine (see AnimalEngine.wire()). */
   pointer: PointerState = { x: 0, y: 0, vx: 0, vy: 0, stir: 0, inside: false };
+  /** Where creatures may land (see Perch). Empty under reduced motion. */
+  perches: Perch[] = [];
+  /** When something last shooed perched creatures off (typing, a resize); nothing lands until quietUntil. */
+  disturbedAt = -Infinity;
+  quietUntil = 0;
+  /** Height of one renderer cell, px, so landings can line up with the grid. */
+  cellH = 18;
 
   private nextId = 1;
   /** Fractional retirements carried between steps. */
@@ -256,6 +275,12 @@ export class Flock<C extends Creature = Creature> {
   /** Parallax: far individuals cover less screen per second. */
   cruise(c: Creature) {
     return this.animal.speed * (0.55 + 0.45 * c.depth) * this.tuning.speed;
+  }
+
+  /** Shoo off anything that has landed, and let nothing land for `quiet` seconds. */
+  disturb(quiet = 6) {
+    this.disturbedAt = this.time;
+    this.quietUntil = this.time + quiet;
   }
 
   /** Click: everything nearby reacts, then rejoins the stream (or the animal takes the tap itself). */
