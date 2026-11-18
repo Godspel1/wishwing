@@ -117,7 +117,7 @@ export const SHARED_CONTROLS: { movement: KnobSpec[]; look: KnobSpec[] } = {
     { key: "separation", label: "Separation", min: 0, max: 1000, step: 10, hint: "How strongly neighbours keep their distance from each other." },
   ],
   look: [
-    { key: "hueShift", label: "Hue shift (°)", min: -180, max: 180, step: 1, hint: "Turns the animal's colour around the colour wheel, in degrees. Find one you like and tell me the number to make it permanent." },
+    { key: "hueShift", label: "Hue shift (°)", min: -180, max: 180, step: 1, hint: "Turns their colours around the colour wheel, in degrees. 0 is their natural colour." },
     { key: "shimmer", label: "Shimmer", min: 0, max: 1, step: 0.01, hint: "How much iridescent surfaces roll brighter and darker as the animal turns." },
     { key: "sparkle", label: "Sparkle", min: 0, max: 0.5, step: 0.01, hint: "How often cells flash white, like light catching scales or wings." },
     { key: "fog", label: "Distance fade", min: 0, max: 1, step: 0.01, hint: "How much far-away ones fade into the background." },

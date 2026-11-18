@@ -1,9 +1,10 @@
 /**
- * Tweak panel: scene engine knobs, profile name input, and search box glass.
- * Rebuilt for the New Tab extension:
- *   - No permanent tweaks button cluttering the screen.
- *   - Hovering cursor at left or right edge for 1 second reveals the panel with smooth glass slide.
- *   - Profile greeting name input at the top.
+ * Settings drawer. Hidden until the mouse rests at the left or right edge for a second, the gear
+ * in the corner is clicked, or T is pressed.
+ *
+ *   Scene     theme, creature, a mood preset, and the four sliders most people want
+ *   Profile   the name in the greeting
+ *   Advanced  (collapsed) every other knob, the search box glass, Copy and Reset
  */
 import type { ThemeMode } from "./theme";
 import { getGreetingName, mountChoices, setGreetingName } from "./ui";
@@ -20,8 +21,13 @@ const GLASS_DEFAULTS = {
 
 type Glass = typeof GLASS_DEFAULTS;
 
+/** The glass belongs to the page, not to an animal, so it has its own key. */
+const GLASS_KEY = "wishless-tab:glass";
+
 interface Range {
   kind: "range";
+  /** The tuning key behind it, when there is one. */
+  key?: string;
   label: string;
   hint?: string;
   min: number;
@@ -35,6 +41,7 @@ interface Range {
 
 interface Toggle {
   kind: "toggle";
+  key?: string;
   label: string;
   hint?: string;
   def: boolean;
@@ -62,7 +69,22 @@ export interface AnimalChoice {
   swatch: string;
 }
 
-const OPEN_KEY = "wishless-tab:tweaks-open";
+/** The sliders shown up front, pulled out of the animal's groups (everything else goes under Advanced). */
+const MAIN: { key: string; label: string; hint: string }[] = [
+  { key: "density", label: "Amount", hint: "How many are on screen." },
+  { key: "speed", label: "Speed", hint: "How fast they travel." },
+  { key: "size", label: "Size", hint: "How big they are." },
+  { key: "hueShift", label: "Colour", hint: "Turns their colours around the colour wheel. 0 is their natural colour." },
+];
+
+/** Presets scale the current animal's own defaults, so they suit every animal. */
+const PRESETS: Record<string, Partial<Record<"density" | "speed" | "size", number>>> = {
+  calm: { density: 0.6, speed: 0.65 },
+  lively: {},
+  swarm: { density: 2.2, speed: 1.3, size: 0.8 },
+  still: { density: 0.5, speed: 0.2 },
+};
+const PRESET_KEYS = ["density", "speed", "size"] as const;
 
 function load<T>(storageKey: string): { tuning?: Partial<T>; glass?: Partial<Glass> } {
   try {
@@ -70,6 +92,15 @@ function load<T>(storageKey: string): { tuning?: Partial<T>; glass?: Partial<Gla
   } catch {
     return {};
   }
+}
+
+function loadGlass(fallback?: Partial<Glass>): Partial<Glass> {
+  try {
+    const raw = localStorage.getItem(GLASS_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  // Older versions kept the glass with the butterflies' settings.
+  return fallback ?? {};
 }
 
 function changed<T extends object>(values: T, defaults: T): Partial<T> {
@@ -81,7 +112,7 @@ function changed<T extends object>(values: T, defaults: T): Partial<T> {
 }
 
 function applyGlass(g: Glass) {
-  const composer = document.querySelector<HTMLElement>(".composer")!;
+  const composer = document.querySelector<HTMLElement>(".composer");
   if (composer) {
     composer.style.setProperty("--blur", `${g.blur}px`);
     composer.style.borderRadius = `${g.radius}px`;
@@ -101,6 +132,8 @@ function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, t
   if (text) node.textContent = text;
   return node;
 }
+
+const GEAR = `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>`;
 
 export function mountTweakPanel<T extends Knobs>(
   engine: Tunable<T>,
@@ -128,32 +161,37 @@ export function mountTweakPanel<T extends Knobs>(
   let activeGroups = groups;
   let activeAnimal = currentAnimal;
 
-  const t = engine.tuning;
-  const saved = load<T>(activeStorageKey);
-  const glass: Glass = { ...GLASS_DEFAULTS, ...saved.glass };
-  for (const [key, value] of Object.entries(saved.tuning ?? {})) {
-    if (key in activeDefaults) engine.set(key as keyof T, value as never);
-  }
+  // Read the tuning live: setAnimal() gives the engine a new tuning object.
+  const tune = () => engine.tuning;
+
+  const restore = (key: string) => {
+    for (const [k, value] of Object.entries(load<T>(key).tuning ?? {})) {
+      if (k in activeDefaults) engine.set(k as keyof T, value as never);
+    }
+  };
+  restore(activeStorageKey);
+  const glass: Glass = { ...GLASS_DEFAULTS, ...loadGlass(load<T>(activeStorageKey).glass) };
   applyGlass(glass);
 
   const save = () => {
     try {
-      localStorage.setItem(activeStorageKey, JSON.stringify({ tuning: changed(t, activeDefaults), glass: changed(glass, GLASS_DEFAULTS) }));
+      localStorage.setItem(activeStorageKey, JSON.stringify({ tuning: changed(tune(), activeDefaults) }));
+      localStorage.setItem(GLASS_KEY, JSON.stringify(changed(glass, GLASS_DEFAULTS)));
     } catch {}
     onChange?.();
   };
 
   const kit: ControlKit<T> = {
     knob: (key, label, min, max, step, hint) => ({
-      kind: "range", label, min, max, step, hint,
+      kind: "range", key: String(key), label, min, max, step, hint,
       def: activeDefaults[key] as number,
-      get: () => t[key] as number,
+      get: () => tune()[key] as number,
       set: (v) => engine.set(key, v as T[typeof key]),
     }),
     toggle: (key, label, hint) => ({
-      kind: "toggle", label, hint,
+      kind: "toggle", key: String(key), label, hint,
       def: activeDefaults[key] as boolean,
-      get: () => t[key] as boolean,
+      get: () => tune()[key] as boolean,
       set: (v) => engine.set(key, v as T[typeof key]),
     }),
   };
@@ -168,23 +206,47 @@ export function mountTweakPanel<T extends Knobs>(
     },
   });
 
-  // ── DOM STRUCTURE ──
+  // ── presets ──
+
+  const presetValue = (name: string, key: (typeof PRESET_KEYS)[number]) =>
+    (activeDefaults[key] as number) * (PRESETS[name][key] ?? 1);
+
+  /** The preset the current values match, or "" when they've been hand-tuned. */
+  const matchPreset = () => {
+    const t = tune();
+    return Object.keys(PRESETS).find((name) =>
+      PRESET_KEYS.every((key) => key in activeDefaults && Math.abs((t[key] as number) - presetValue(name, key)) < 1e-6),
+    ) ?? "";
+  };
+
+  const applyPreset = (name: string) => {
+    for (const key of PRESET_KEYS) {
+      if (key in activeDefaults) engine.set(key, presetValue(name, key) as T[typeof key]);
+    }
+  };
+
+  // ── DOM ──
+
   const panel = el("aside", "tweaks glass");
-  panel.setAttribute("aria-label", "Tweaks");
+  panel.setAttribute("aria-label", "Settings");
 
   const header = el("header", "tweaks-head");
-  const title = el("h2", "", "Tweaks & Settings");
-  const copy = el("button", "tweaks-action", "Copy");
-  const reset = el("button", "tweaks-action", "Reset");
+  const title = el("h2", "", "Settings");
   const close = el("button", "tweaks-close");
-  close.setAttribute("aria-label", "Close tweaks");
+  close.setAttribute("aria-label", "Close settings");
   close.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>`;
-  header.append(title, copy, reset, close);
+  header.append(title, close);
 
   const body = el("div", "tweaks-body");
   panel.append(header, body);
 
-  // Tip box
+  const gear = el("button", "tweaks-gear");
+  gear.type = "button";
+  gear.setAttribute("aria-label", "Settings");
+  gear.title = "Settings (T)";
+  gear.innerHTML = GEAR;
+
+  // Tooltip beside the drawer, explaining the hovered setting.
   const tip = el("div", "tweaks-tip");
   tip.setAttribute("role", "tooltip");
   tip.hidden = true;
@@ -200,7 +262,7 @@ export function mountTweakPanel<T extends Knobs>(
   };
   const hideTip = () => (tip.hidden = true);
 
-  // Edge hotzones: hover at left or right edge for 1s to reveal
+  // Edge hotzones: rest the mouse at the left or right edge for a second to open.
   const hotzoneRight = el("div", "edge-hotzone right");
   const hotzoneLeft = el("div", "edge-hotzone left");
 
@@ -225,10 +287,10 @@ export function mountTweakPanel<T extends Knobs>(
     }
   };
 
-  hotzoneRight.addEventListener("mouseenter", () => startHoverTimer(hotzoneRight));
-  hotzoneRight.addEventListener("mouseleave", () => cancelHoverTimer(hotzoneRight));
-  hotzoneLeft.addEventListener("mouseenter", () => startHoverTimer(hotzoneLeft));
-  hotzoneLeft.addEventListener("mouseleave", () => cancelHoverTimer(hotzoneLeft));
+  for (const hz of [hotzoneLeft, hotzoneRight]) {
+    hz.addEventListener("mouseenter", () => startHoverTimer(hz));
+    hz.addEventListener("mouseleave", () => cancelHoverTimer(hz));
+  }
 
   panel.addEventListener("mouseenter", () => {
     if (closeTimer) {
@@ -236,88 +298,167 @@ export function mountTweakPanel<T extends Knobs>(
       closeTimer = null;
     }
   });
-
   panel.addEventListener("mouseleave", () => {
     if (closeTimer) clearTimeout(closeTimer);
+    // Not while something in the drawer has focus (typing a name, a slider held by keyboard).
     closeTimer = window.setTimeout(() => {
-      setOpen(false);
+      if (!panel.contains(document.activeElement)) setOpen(false);
     }, 1200);
   });
 
   let refreshers: (() => void)[] = [];
+  let cleanups: (() => void)[] = [];
+  const refreshAll = () => refreshers.forEach((r) => r());
+
+  /** One slider or switch row. */
+  function row(c: Control) {
+    const line = el("label", `tweaks-row ${c.kind}`);
+    const label = el("span", "tweaks-label", c.label);
+    line.addEventListener("pointerenter", () => showTip(line, c.hint));
+    line.addEventListener("pointerleave", hideTip);
+    line.addEventListener("focusin", () => showTip(line, c.hint));
+    line.addEventListener("focusout", hideTip);
+
+    if (c.kind === "toggle") {
+      const box = el("input");
+      box.type = "checkbox";
+      box.addEventListener("change", () => {
+        c.set(box.checked);
+        refreshAll();
+        save();
+      });
+      refreshers.push(() => (box.checked = c.get()));
+      label.addEventListener("dblclick", (e) => {
+        e.preventDefault();
+        c.set(c.def);
+        refreshAll();
+        save();
+      });
+      line.append(label, box);
+      return line;
+    }
+
+    const out = el("output", "tweaks-value");
+    const input = el("input");
+    input.type = "range";
+    input.min = String(c.min);
+    input.max = String(c.max);
+    input.step = String(c.step);
+    const show = () => {
+      const v = c.get();
+      input.value = String(v);
+      out.textContent = v.toFixed(decimals(c.step));
+      input.style.setProperty("--fill", `${((v - c.min) / (c.max - c.min)) * 100}%`);
+      const off = c.disabled?.() ?? false;
+      input.disabled = off;
+      line.classList.toggle("off", off);
+    };
+    input.addEventListener("input", () => {
+      c.set(Number(input.value));
+      refreshAll();
+      save();
+    });
+    label.addEventListener("dblclick", (e) => {
+      e.preventDefault();
+      c.set(c.def);
+      refreshAll();
+      save();
+    });
+    refreshers.push(show);
+    line.append(label, out, input);
+    return line;
+  }
+
+  /** A labelled segmented control. */
+  function choiceRow(name: string, host: HTMLElement) {
+    const wrap = el("div", "tweaks-field");
+    wrap.append(el("span", "tweaks-field-label", name), host);
+    host.setAttribute("role", "radiogroup");
+    host.setAttribute("aria-label", name);
+    return wrap;
+  }
+
+  function section(name: string, ...children: HTMLElement[]) {
+    const s = el("section", "tweaks-group");
+    s.append(el("h3", "", name), ...children);
+    return s;
+  }
 
   function buildBody() {
+    cleanups.forEach((f) => f());
     body.replaceChildren();
     refreshers = [];
+    cleanups = [];
 
-    // 1. Profile / Greeting Name
-    const profileSection = el("section", "tweaks-group tweaks-profile-group");
-    profileSection.append(el("h3", "", "Profile"));
-    const nameRow = el("div", "tweaks-name-row");
-    const nameLabel = el("label", "tweaks-name-label", "Greeting Name");
+    const all = activeGroups(kit);
+    const mainKeys = new Set(MAIN.map((m) => m.key));
+    const main = MAIN.flatMap(({ key, label, hint }) => {
+      for (const [, controls] of all) {
+        const found = controls.find((c) => c.key === key);
+        if (found) return [{ ...found, label, hint } as Control];
+      }
+      return [];
+    });
+
+    // 1. Scene
+    const look: HTMLElement[] = [];
+    if (theme) {
+      const host = el("div", "choices");
+      look.push(choiceRow("Theme", host));
+      const c = mountChoices(host, [
+        { value: "auto", label: "Auto" },
+        { value: "light", label: "Light" },
+        { value: "dark", label: "Dark" },
+      ], theme.mode, (v) => theme.setMode(v as ThemeMode));
+      cleanups.push(c.destroy);
+    }
+    if (animals.length > 1) {
+      const host = el("div", "choices");
+      look.push(choiceRow("Creature", host));
+      const c = mountChoices(host, animals.map((a) => ({ value: a.key, label: a.label, swatch: a.swatch })), activeAnimal, (key) => {
+        if (key === activeAnimal) return;
+        activeAnimal = key;
+        onPickAnimal?.(key);
+      });
+      cleanups.push(c.destroy);
+    }
+    {
+      const host = el("div", "choices");
+      look.push(choiceRow("Mood", host));
+      const c = mountChoices(host, [
+        { value: "calm", label: "Calm" },
+        { value: "lively", label: "Lively" },
+        { value: "swarm", label: "Swarm" },
+        { value: "still", label: "Still" },
+      ], matchPreset(), (name) => {
+        applyPreset(name);
+        refreshAll();
+        save();
+      });
+      cleanups.push(c.destroy);
+      refreshers.push(() => c.select(matchPreset()));
+    }
+    look.push(...main.map(row));
+    body.append(section("Scene", ...look));
+
+    // 2. Profile
+    const nameRow = el("div", "tweaks-field");
+    const nameLabel = el("label", "tweaks-field-label", "Greeting name");
     const nameInput = el("input", "tweaks-name-input");
     nameInput.type = "text";
+    nameInput.id = "tweaks-name";
+    nameLabel.htmlFor = nameInput.id;
     nameInput.value = getGreetingName();
     nameInput.placeholder = "David";
-    nameInput.addEventListener("input", () => {
-      setGreetingName(nameInput.value);
-    });
+    nameInput.addEventListener("input", () => setGreetingName(nameInput.value));
     nameRow.append(nameLabel, nameInput);
-    profileSection.append(nameRow);
+    body.append(section("Profile", nameRow));
 
-    if (theme) {
-      const themeRow = el("div", "tweaks-name-row");
-      const themeLabel = el("span", "tweaks-name-label", "Theme");
-      const choices = el("div", "choices");
-      choices.setAttribute("role", "radiogroup");
-      choices.setAttribute("aria-label", "Theme");
-      themeRow.append(themeLabel, choices);
-      profileSection.append(themeRow);
-      mountChoices(
-        choices,
-        [
-          { value: "auto", label: "Auto" },
-          { value: "light", label: "Light" },
-          { value: "dark", label: "Dark" },
-        ],
-        theme.mode,
-        (value) => theme.setMode(value as ThemeMode),
-      );
-    }
-    body.append(profileSection);
-
-    // 2. Animal Selector Grid
-    if (animals.length > 0) {
-      const animalSection = el("section", "tweaks-group tweaks-animals-group");
-      animalSection.append(el("h3", "", "Animals"));
-      const grid = el("div", "tweaks-animal-grid");
-
-      for (const a of animals) {
-        const btn = el("button", "tweaks-animal-btn");
-        btn.type = "button";
-        if (a.key === activeAnimal) btn.classList.add("active");
-
-        const dot = el("span", "dot");
-        dot.style.setProperty("--swatch", a.swatch);
-        const nameSpan = el("span", "", a.label);
-
-        btn.append(dot, nameSpan);
-        btn.addEventListener("click", () => {
-          if (a.key === activeAnimal) return;
-          activeAnimal = a.key;
-          grid.querySelectorAll(".tweaks-animal-btn").forEach((b) => b.classList.remove("active"));
-          btn.classList.add("active");
-          onPickAnimal?.(a.key);
-        });
-        grid.append(btn);
-      }
-      animalSection.append(grid);
-      body.append(animalSection);
-    }
-
-    // 3. Movement, Animal specific, Look, and Glass Knobs
-    const sections: [string, Control[]][] = [
-      ...activeGroups(kit),
+    // 3. Advanced: everything else, collapsed.
+    const advanced = el("details", "tweaks-advanced");
+    advanced.append(el("summary", "", "Advanced"));
+    const rest: [string, Control[]][] = [
+      ...all.map(([name, controls]): [string, Control[]] => [name, controls.filter((c) => !c.key || !mainKeys.has(c.key))]),
       ["Search box", [
         pane("blur", "Blur (px)", 0, 30, 0.5, "How frosted the search box is."),
         pane("refraction", "Refraction", 0, 150, 1, "How strongly the glass bends what's behind it."),
@@ -328,163 +469,108 @@ export function mountTweakPanel<T extends Knobs>(
         pane("width", "Width", 320, 960, 10, "Width of the search box."),
       ]],
     ];
-
-    for (const [name, controls] of sections) {
-      const section = el("section", "tweaks-group");
-      section.append(el("h3", "", name));
-      for (const c of controls) {
-        const row = el("label", `tweaks-row ${c.kind}`);
-        const label = el("span", "tweaks-label", c.label);
-        row.addEventListener("pointerenter", () => showTip(row, c.hint));
-        row.addEventListener("pointerleave", hideTip);
-        row.addEventListener("focusin", () => showTip(row, c.hint));
-        row.addEventListener("focusout", hideTip);
-
-        if (c.kind === "toggle") {
-          const box = el("input");
-          box.type = "checkbox";
-          box.addEventListener("change", () => {
-            c.set(box.checked);
-            refreshAll();
-            save();
-          });
-          refreshers.push(() => (box.checked = c.get()));
-          label.addEventListener("dblclick", (e) => {
-            e.preventDefault();
-            c.set(c.def);
-            refreshAll();
-            save();
-          });
-          row.append(label, box);
-        } else {
-          const out = el("output", "tweaks-value");
-          const input = el("input");
-          input.type = "range";
-          input.min = String(c.min);
-          input.max = String(c.max);
-          input.step = String(c.step);
-          const show = () => {
-            const v = c.get();
-            input.value = String(v);
-            out.textContent = v.toFixed(decimals(c.step));
-            input.style.setProperty("--fill", `${((v - c.min) / (c.max - c.min)) * 100}%`);
-            const off = c.disabled?.() ?? false;
-            input.disabled = off;
-            row.classList.toggle("off", off);
-          };
-          input.addEventListener("input", () => {
-            c.set(Number(input.value));
-            show();
-            save();
-          });
-          label.addEventListener("dblclick", (e) => {
-            e.preventDefault();
-            c.set(c.def);
-            show();
-            save();
-          });
-          refreshers.push(show);
-          row.append(label, out, input);
-        }
-        section.append(row);
-      }
-      body.append(section);
+    for (const [name, controls] of rest) {
+      if (controls.length) advanced.append(section(name, ...controls.map(row)));
     }
+
+    const actions = el("div", "tweaks-actions");
+    const copy = el("button", "tweaks-action", "Copy settings");
+    copy.type = "button";
+    copy.title = "Copy these settings as JSON";
+    const reset = el("button", "tweaks-action", "Reset all");
+    reset.type = "button";
+    actions.append(copy, reset);
+    advanced.append(actions);
+    body.append(advanced);
+
+    copy.addEventListener("click", async () => {
+      const json = JSON.stringify({ tuning: changed(tune(), activeDefaults), glass: changed(glass, GLASS_DEFAULTS) }, null, 2);
+      try {
+        await navigator.clipboard.writeText(json);
+        copy.textContent = "Copied";
+      } catch {
+        copy.textContent = "In console";
+        console.log(json);
+      }
+      setTimeout(() => (copy.textContent = "Copy settings"), 1400);
+    });
+
+    // Reset asks once: the first click arms it for three seconds.
+    let armed = 0;
+    const disarm = () => {
+      clearTimeout(armed);
+      armed = 0;
+      reset.textContent = "Reset all";
+      reset.classList.remove("confirm");
+    };
+    reset.addEventListener("click", () => {
+      if (!armed) {
+        reset.textContent = "Reset everything?";
+        reset.classList.add("confirm");
+        armed = window.setTimeout(disarm, 3000);
+        return;
+      }
+      disarm();
+      for (const key of Object.keys(activeDefaults) as (keyof T)[]) engine.set(key, activeDefaults[key]);
+      Object.assign(glass, GLASS_DEFAULTS);
+      applyGlass(glass);
+      refreshAll();
+      try {
+        localStorage.removeItem(activeStorageKey);
+        localStorage.removeItem(GLASS_KEY);
+      } catch {}
+      onChange?.();
+    });
 
     refreshAll();
   }
 
-  const refreshAll = () => refreshers.forEach((r) => r());
-
   buildBody();
-
-  // Header copy/reset
-  copy.addEventListener("click", async () => {
-    const json = JSON.stringify({ tuning: changed(t, activeDefaults), glass: changed(glass, GLASS_DEFAULTS) }, null, 2);
-    try {
-      await navigator.clipboard.writeText(json);
-      copy.textContent = "Copied";
-    } catch {
-      copy.textContent = "In console";
-      console.log(json);
-    }
-    setTimeout(() => (copy.textContent = "Copy"), 1400);
-  });
-
-  let armed = 0;
-  const disarm = () => {
-    clearTimeout(armed);
-    armed = 0;
-    reset.textContent = "Reset";
-    reset.classList.remove("confirm");
-  };
-  reset.addEventListener("click", () => {
-    if (!armed) {
-      reset.textContent = "Reset all?";
-      reset.classList.add("confirm");
-      armed = window.setTimeout(disarm, 3000);
-      return;
-    }
-    disarm();
-    for (const key of Object.keys(activeDefaults) as (keyof T)[]) engine.set(key, activeDefaults[key]);
-    Object.assign(glass, GLASS_DEFAULTS);
-    applyGlass(glass);
-    refreshAll();
-    try {
-      localStorage.removeItem(activeStorageKey);
-    } catch {}
-    onChange?.();
-  });
 
   const setOpen = (open: boolean) => {
     panel.classList.toggle("open", open);
-    try {
-      localStorage.setItem(OPEN_KEY, open ? "1" : "0");
-    } catch {}
+    gear.setAttribute("aria-expanded", String(open));
+    if (!open) hideTip();
   };
 
-  close.addEventListener("click", () => {
-    hideTip();
-    setOpen(false);
-  });
+  close.addEventListener("click", () => setOpen(false));
+  gear.addEventListener("click", () => setOpen(!panel.classList.contains("open")));
 
-  // Global keybindings: Esc closes, T toggles
+  // Esc closes, T toggles (not while typing).
   const onKey = (e: KeyboardEvent) => {
-    const tag = (e.target as HTMLElement)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    const target = e.target as HTMLElement | null;
+    if (target?.closest("input, textarea, [contenteditable]")) {
+      if (e.key === "Escape" && panel.contains(target)) setOpen(false);
+      return;
+    }
     if (e.key === "Escape" && panel.classList.contains("open")) {
       setOpen(false);
-    } else if (e.key.toLowerCase() === "t") {
+    } else if (e.key.toLowerCase() === "t" && !e.ctrlKey && !e.metaKey && !e.altKey) {
       setOpen(!panel.classList.contains("open"));
     }
   };
   window.addEventListener("keydown", onKey);
 
-  document.body.append(hotzoneLeft, hotzoneRight, panel, tip);
+  document.body.append(hotzoneLeft, hotzoneRight, gear, panel, tip);
 
   return {
     sync() {
       refreshAll();
       save();
     },
+    /** Show another animal's knobs and saved settings (after engine.setAnimal). */
     updateAnimal(newKey: string, newDefaults: T, newGroups: (kit: ControlKit<T>) => [string, Control[]][], newStorageKey: string) {
       activeAnimal = newKey;
       activeDefaults = newDefaults;
       activeGroups = newGroups;
       activeStorageKey = newStorageKey;
-
-      const newSaved = load<T>(activeStorageKey);
-      for (const [k, val] of Object.entries(newSaved.tuning ?? {})) {
-        if (k in activeDefaults) engine.set(k as keyof T, val as never);
-      }
+      restore(activeStorageKey);
       buildBody();
     },
     destroy() {
+      cleanups.forEach((f) => f());
       window.removeEventListener("keydown", onKey);
-      panel.remove();
-      hotzoneLeft.remove();
-      hotzoneRight.remove();
-      tip.remove();
+      for (const node of [panel, hotzoneLeft, hotzoneRight, gear, tip]) node.remove();
     },
   };
 }

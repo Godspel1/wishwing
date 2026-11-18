@@ -142,22 +142,7 @@ svg { display: block; }
   pointer-events: none;
 }
 
-/* ── top bar: the animal choices ─────────────────────────────── */
-
-.top-bar {
-  position: fixed;
-  /* Above the greeting and composer. */
-  z-index: 30;
-  top: 18px;
-  left: 50%;
-  translate: -50% 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.top-bar .glass { position: relative; }
-
-/* Animal choices: every animal in one glass row, a thumb sliding under the current one. */
+/* Segmented choices: buttons in one row, a thumb sliding under the chosen one (see mountChoices). */
 .choices {
   display: flex;
   gap: 2px;
@@ -199,7 +184,7 @@ svg { display: block; }
   border-radius: 999px;
   background: var(--thumb);
   box-shadow: inset 0 1px 0 var(--glass-rim), 0 2px 8px rgba(0, 0, 0, 0.12);
-  transition: translate 0.35s cubic-bezier(0.3, 1.3, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.3, 0.5, 1);
+  transition: translate 0.35s cubic-bezier(0.3, 1.3, 0.5, 1), width 0.35s cubic-bezier(0.3, 1.3, 0.5, 1), opacity 0.2s;
 }
 .choices .dot {
   flex: none;
@@ -207,27 +192,6 @@ svg { display: block; }
   height: 9px;
   border-radius: 50%;
   background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--swatch) 50%, white), var(--swatch) 70%);
-}
-
-.lab-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 40px;
-  padding: 0 15px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-soft);
-  text-decoration: none;
-  cursor: pointer;
-  white-space: nowrap;
-  --blur: 5px;
-  transition: color 0.2s, transform 0.15s;
-}
-.lab-link:hover {
-  color: var(--text);
-  transform: translateY(-1px);
 }
 
 /* ── clock + search box (in liquid glass) ── */
@@ -522,6 +486,32 @@ svg { display: block; }
   opacity: 0.65;
 }
 
+/* ── settings gear: faint until hovered ───────────────────────── */
+
+.tweaks-gear {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 46;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--chip-edge);
+  border-radius: 50%;
+  background: var(--chip);
+  color: var(--text-soft);
+  opacity: 0.4;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  transition: opacity 0.25s, rotate 0.5s cubic-bezier(0.2, 0.9, 0.3, 1), color 0.2s;
+}
+.tweaks-gear:hover, .tweaks-gear:focus-visible, .tweaks-gear[aria-expanded="true"] { opacity: 1; color: var(--text); }
+.tweaks-gear:hover { rotate: 45deg; }
+.tweaks-gear:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
 /* ── tweak panel: hidden by default, slides from right ───────── */
 
 .tweaks {
@@ -563,31 +553,13 @@ svg { display: block; }
   cursor: pointer;
   font-size: 12px;
 }
-.tweaks-action { padding: 0 10px; }
+.tweaks-action { padding: 0 12px; }
 .tweaks-action.confirm { color: var(--danger); background: var(--danger-soft); border-color: var(--danger-edge); }
 .tweaks-action.confirm:hover { filter: brightness(1.1); }
 .tweaks-close { width: 26px; padding: 0; display: grid; place-items: center; }
 .tweaks-action:hover, .tweaks-close:hover { background: var(--chip-hover); color: var(--text); }
 .tweaks-body { overflow-y: auto; padding: 4px 16px 14px; overscroll-behavior: contain; }
 
-/* Profile Name Input */
-.tweaks-profile-group {
-  margin-bottom: 14px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--chip-edge);
-}
-.tweaks-name-row {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin: 6px 0 2px;
-}
-.tweaks-name-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--muted);
-  user-select: none;
-}
 .tweaks-name-input {
   position: relative !important;
   display: block;
@@ -610,59 +582,11 @@ svg { display: block; }
   box-shadow: 0 0 0 2px var(--focus);
 }
 
-/* Animal Selector Grid */
-.tweaks-animals-group {
-  margin-bottom: 14px;
-  padding-bottom: 14px;
-  border-bottom: 1px solid var(--chip-edge);
-}
-.tweaks-animal-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 7px;
-  margin: 8px 0 4px;
-}
-.tweaks-animal-btn {
-  position: relative !important;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 10px;
-  border-radius: 10px;
-  border: 1px solid var(--chip-edge);
-  background: var(--chip);
-  color: var(--text-soft);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  box-sizing: border-box;
-  transition: background 0.15s, color 0.15s, border-color 0.15s, transform 0.15s;
-}
-.tweaks-animal-btn:hover {
-  background: var(--chip-hover);
-  color: var(--text);
-  border-color: var(--accent-edge);
-  transform: translateY(-1px);
-}
-.tweaks-animal-btn.active {
-  background: var(--accent-soft);
-  border-color: var(--accent-edge);
-  color: var(--text);
-  box-shadow: 0 0 12px var(--accent-soft);
-}
-.tweaks-animal-btn .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--swatch);
-  box-shadow: 0 0 6px var(--swatch);
-  flex-shrink: 0;
-}
-/* Segmented choices (Theme) inside the drawer. */
+/* A label above a control: Theme, Creature, Mood, Greeting name. */
+.tweaks-field { display: flex; flex-direction: column; gap: 6px; margin: 6px 0 10px; }
+.tweaks-field-label { font-size: 11px; font-weight: 500; color: var(--muted); user-select: none; }
+
+/* Segmented choices inside the drawer. */
 .tweaks .choices {
   position: relative;
   max-width: none;
@@ -672,6 +596,35 @@ svg { display: block; }
 }
 .tweaks .choices button { flex: 1; justify-content: center; height: 28px; padding: 0 10px; font-size: 12px; }
 .tweaks .choices .thumb { top: 3px; bottom: 3px; }
+.tweaks-advanced { margin-top: 10px; border-top: 1px solid var(--chip-edge); }
+.tweaks-advanced > summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 0 4px;
+  list-style: none;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-soft);
+  cursor: pointer;
+  user-select: none;
+}
+.tweaks-advanced > summary::-webkit-details-marker { display: none; }
+.tweaks-advanced > summary::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  rotate: -45deg;
+  transition: rotate 0.2s;
+}
+.tweaks-advanced[open] > summary::before { rotate: 45deg; }
+.tweaks-advanced > summary:hover { color: var(--text); }
+.tweaks-advanced > summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 4px; }
+.tweaks-actions { display: flex; gap: 8px; margin: 16px 0 4px; }
+.tweaks-actions .tweaks-action { flex: 1; height: 30px; }
+.tweaks-group:first-child h3 { margin-top: 8px; }
 .tweaks-group h3 {
   margin: 14px 0 6px;
   font: 600 10px/1 "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
@@ -775,5 +728,5 @@ svg { display: block; }
   .tweaks { top: auto; bottom: 12px; left: 12px; right: 12px; width: auto; max-height: 75vh; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .glass, .choices .thumb, .choices button, .send, .tweaks { transition: none; }
+  .glass, .choices .thumb, .choices button, .send, .tweaks, .tweaks-gear, .tweaks-advanced > summary::before { transition: none; }
 }

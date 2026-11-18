@@ -241,6 +241,10 @@ export interface Choice {
   swatch?: string;
 }
 
+/**
+ * A row of segmented buttons with a thumb sliding under the chosen one (arrow keys move it).
+ * `current` may match none of them; the returned `select()` changes the choice without calling onPick.
+ */
 export function mountChoices(host: HTMLElement, choices: Choice[], current: string, onPick: (value: string) => void) {
   const thumb = document.createElement("span");
   thumb.className = "thumb";
@@ -261,19 +265,22 @@ export function mountChoices(host: HTMLElement, choices: Choice[], current: stri
 
   function place() {
     const b = buttons.find((x) => x.getAttribute("aria-checked") === "true");
+    thumb.style.opacity = b ? "1" : "0";
     if (!b) return;
     thumb.style.translate = `${b.offsetLeft}px 0`;
     thumb.style.width = `${b.offsetWidth}px`;
   }
 
   function select(value: string, pick: boolean) {
-    for (const b of buttons) {
+    const any = buttons.some((b) => b.dataset.value === value);
+    buttons.forEach((b, i) => {
       const on = b.dataset.value === value;
       b.setAttribute("aria-checked", String(on));
-      b.tabIndex = on ? 0 : -1;
+      // Keep one button tabbable even when none is chosen.
+      b.tabIndex = on || (!any && i === 0) ? 0 : -1;
       // Only on a pick: scrolling a hidden drawer into view would shift the page.
       if (on && pick) b.scrollIntoView({ block: "nearest", inline: "nearest" });
-    }
+    });
     place();
     if (pick) onPick(value);
   }
@@ -290,4 +297,11 @@ export function mountChoices(host: HTMLElement, choices: Choice[], current: stri
   select(current, false);
   document.fonts?.ready.then(place);
   window.addEventListener("resize", place);
+
+  return {
+    select: (value: string) => select(value, false),
+    /** Re-measure, e.g. once a hidden container is shown. */
+    place,
+    destroy: () => window.removeEventListener("resize", place),
+  };
 }
