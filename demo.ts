@@ -6,7 +6,7 @@ import { ANIMAL_KEYS, ANIMALS, AnimalEngine, SHARED_CONTROLS, type AnimalKey, ty
 import { applyPageTheme, currentSky, mountTheme, themeFor } from "./theme";
 import { mountComposer } from "./search";
 import { mountShortcuts } from "./shortcuts";
-import { measureLedges, mountClock, mountGreeting } from "./ui";
+import { measureLedges, mountClock, mountGreeting, rimLight } from "./ui";
 
 // Only Chromium can run an SVG filter inside backdrop-filter; everyone else gets frosted glass.
 // (Set here, not in an inline <script>: Chrome blocks inline scripts on extension pages.)
@@ -96,5 +96,8 @@ window.addEventListener("resize", refreshLedges);
 document.fonts?.ready.then(refreshLedges);
 refreshLedges();
 document.querySelector(".composer textarea")?.addEventListener("input", () => engine.disturb());
+// Fireflies close to the search box light up its rim.
+const composer = document.querySelector<HTMLElement>(".composer");
+if (composer) engine.onLights(rimLight(composer));
 mountGreeting();
 mountClock();

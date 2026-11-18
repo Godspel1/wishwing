@@ -62,6 +62,58 @@ export function mountGreeting() {
   });
 }
 
+/** A light on the page this frame (a firefly), in client px: see AnimalEngine.onLights. */
+export interface PageLight {
+  x: number;
+  y: number;
+  r: number;
+  a: number;
+  color: readonly number[];
+}
+
+/**
+ * Light from fireflies near the search box catches its rim: a thin warm line along the edge closest
+ * to each light, brightest when one sits right on it. Returns the handler to give onLights.
+ */
+export function rimLight(box: HTMLElement) {
+  const rim = document.createElement("div");
+  rim.className = "composer-rim";
+  rim.setAttribute("aria-hidden", "true");
+  box.append(rim);
+  let shown = "";
+
+  return (lights: readonly PageLight[]) => {
+    let css = "";
+    if (lights.length) {
+      const b = box.getBoundingClientRect();
+      const near: { l: PageLight; s: number }[] = [];
+      for (const l of lights) {
+        // How far the light is from the edge, from outside or (through the glass) from inside.
+        const dx = Math.max(b.left - l.x, 0, l.x - b.right);
+        const dy = Math.max(b.top - l.y, 0, l.y - b.bottom);
+        const d = dx || dy ? Math.hypot(dx, dy) : Math.min(l.x - b.left, b.right - l.x, l.y - b.top, b.bottom - l.y);
+        const reach = 24 + l.r;
+        if (d < reach) near.push({ l, s: l.a * (1 - d / reach) ** 2 });
+      }
+      css = near
+        .filter((n) => n.s > 0.02)
+        .sort((p, q) => q.s - p.s)
+        .slice(0, 4)
+        .map(({ l, s }) => {
+          const [r, g, bl] = l.color.map(Math.round);
+          const size = Math.round(40 + l.r * 2.5);
+          return `radial-gradient(circle ${size}px at ${Math.round(l.x - b.left)}px ${Math.round(l.y - b.top)}px, ` +
+            `rgba(${r},${g},${bl},${Math.min(1, s * 1.8).toFixed(2)}), rgba(${r},${g},${bl},0))`;
+        })
+        .join(", ");
+    }
+    if (css !== shown) {
+      shown = css;
+      rim.style.background = css;
+    }
+  };
+}
+
 /** Big clock above the greeting, in the system's own 12/24-hour style, plus today's date. */
 export function mountClock() {
   const timeEl = document.querySelector<HTMLTimeElement>(".clock-time");

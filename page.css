@@ -294,6 +294,17 @@ svg { display: block; }
     0 0 0 3px rgba(var(--focus-edge), calc(0.12 * var(--edge, 1))),
     var(--glass-shadow);
 }
+/* Firefly light catching the rim (see rimLight in ui.ts): a 1.5px ring over the border, lit in spots. */
+.composer-rim {
+  position: absolute;
+  inset: -1px;
+  padding: 1.5px;
+  border-radius: inherit;
+  pointer-events: none;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box exclude, linear-gradient(#000 0 0);
+}
 .composer-field { display: flex; align-items: flex-start; gap: 10px; }
 .composer-search { flex: none; margin-top: 4px; color: var(--composer-muted); }
 .composer textarea {

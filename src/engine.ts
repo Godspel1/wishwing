@@ -1,7 +1,7 @@
 import { ANIMALS, type AnimalKey } from "./animals";
 import { Flock, type Animal, type Perch, type PointerState, type Tuning } from "./flock";
 import { clamp } from "./math";
-import { AsciiRenderer, THEME_SKIES, type Theme } from "./renderer";
+import { AsciiRenderer, THEME_SKIES, type Light, type Theme } from "./renderer";
 import type { Sky } from "./sky";
 
 const STEP = 1 / 60;
@@ -39,6 +39,7 @@ export class AnimalEngine {
   /** Landing ledges in canvas px, kept across setAnimal(). */
   private perches: Perch[] = [];
   private size = { width: 0, height: 0 };
+  private lightListener: ((lights: Light[]) => void) | null = null;
 
   /** count pins the population; tuning overrides any of the animal's defaults. */
   constructor(
@@ -131,6 +132,16 @@ export class AnimalEngine {
     this.flock.perches = this.reducedMotion.matches ? [] : this.perches;
   }
 
+  /** Hear about the lights (fireflies) drawn each frame, in page (client) px; null stops. */
+  onLights(fn: ((lights: Light[]) => void) | null) {
+    this.lightListener = fn;
+  }
+
+  private draw(dt: number) {
+    this.renderer.render(this.flock, dt);
+    this.lightListener?.(this.renderer.lights(this.rect.left, this.rect.top));
+  }
+
   /** Shoo off anything that has landed (the user is typing, say), and hold off landing for a while. */
   disturb() {
     this.flock.disturb();
@@ -189,7 +200,7 @@ export class AnimalEngine {
       steps++;
     }
     if (steps === MAX_STEPS) this.acc = 0;
-    this.renderer.render(this.flock, dt);
+    this.draw(dt);
     this.raf = requestAnimationFrame(this.frame);
   };
 
@@ -198,7 +209,7 @@ export class AnimalEngine {
     if (this.flock.time < 4) {
       for (let i = 0; i < 240; i++) this.flock.step(STEP);
     }
-    this.renderer.render(this.flock, STEP);
+    this.draw(STEP);
   }
 
   private onMotionPreference = () => {

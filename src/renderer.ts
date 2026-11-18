@@ -82,6 +82,15 @@ function hueMatrix(degrees: number) {
   ];
 }
 
+/** A light drawn this frame (a firefly): where, how far it reaches (px), how bright (0 → 1), its colour. */
+export interface Light {
+  x: number;
+  y: number;
+  r: number;
+  a: number;
+  color: RGB;
+}
+
 /** Fog deepened by vanish: 0 leaves it as is, 1 fades all the way into the background. */
 function withVanish(fog: number, vanish = 0) {
   return vanish > 0 ? 1 - (1 - fog) * (1 - vanish) : fog;
@@ -567,6 +576,11 @@ export class AsciiRenderer {
     if (a > 0.01 && r > 0.5) this.glows.push({ x, y, r, color, core, a: Math.min(1, a), glyph });
   }
 
+  /** The lights drawn this frame (see Pen.glow), moved by (dx, dy), in their on-screen colour. */
+  lights(dx = 0, dy = 0): Light[] {
+    return this.glows.map((l) => ({ x: l.x + dx, y: l.y + dy, r: l.r, a: l.a, color: this.turn(l.color[0], l.color[1], l.color[2]) }));
+  }
+
   private drawGlows() {
     const { ctx, glows } = this;
     if (!glows.length) return;
@@ -588,6 +602,30 @@ export class AsciiRenderer {
       grad.addColorStop(1, rgba(l.color, 0));
       ctx.fillStyle = grad;
       ctx.fillRect(l.x - l.r, l.y - l.r, l.r * 2, l.r * 2);
+    }
+    // The light catches the grid lines around it, a little further out than the glow itself.
+    const lines = Math.min(1, this.tuning.grid) * 0.4;
+    if (lines > 0) {
+      const { cw, ch, dpr } = this;
+      const snap = (v: number) => (Math.round(v * dpr) + 0.5) / dpr;
+      ctx.lineWidth = 1 / dpr;
+      for (const l of glows) {
+        const R = l.r * 2;
+        const grad = ctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, R);
+        grad.addColorStop(0, rgba(l.color, l.a * lines));
+        grad.addColorStop(1, rgba(l.color, 0));
+        ctx.strokeStyle = grad;
+        ctx.beginPath();
+        for (let c = Math.max(0, Math.ceil((l.x - R) / cw)); c * cw <= l.x + R; c++) {
+          ctx.moveTo(snap(c * cw), l.y - R);
+          ctx.lineTo(snap(c * cw), l.y + R);
+        }
+        for (let r = Math.max(0, Math.ceil((l.y - R) / ch)); r * ch <= l.y + R; r++) {
+          ctx.moveTo(l.x - R, snap(r * ch));
+          ctx.lineTo(l.x + R, snap(r * ch));
+        }
+        ctx.stroke();
+      }
     }
     ctx.globalCompositeOperation = "source-over";
     // The points, painted on top so they stay crisp: pale gold on a dark sky (warmer than the white
