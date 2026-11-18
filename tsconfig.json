@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "noEmit": true
   },
-  "include": ["src", "demo.ts", "panel.ts", "ui.ts", "theme.ts"]
+  "include": ["src", "demo.ts", "panel.ts", "ui.ts", "theme.ts", "shortcuts.ts"]
 }

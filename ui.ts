@@ -1,25 +1,7 @@
 /**
- * Page chrome shared by every scene: liquid glass, shortcuts, and the search box.
+ * Page chrome shared by every scene: greeting, clock, search box, and segmented choices.
+ * The shortcut pills live in shortcuts.ts.
  */
-
-export interface Shortcut {
-  id: string;
-  title: string;
-  url: string;
-  icon: string;
-}
-
-const SHORTCUTS_STORE = "wishless-tab:shortcuts";
-
-const DEFAULT_SHORTCUTS: Shortcut[] = [
-  { id: "google", title: "Google", url: "https://www.google.com", icon: "G" },
-  { id: "youtube", title: "YouTube", url: "https://www.youtube.com", icon: "▶" },
-  { id: "github", title: "GitHub", url: "https://github.com", icon: "🐙" },
-  { id: "reddit", title: "Reddit", url: "https://www.reddit.com", icon: "●" },
-  { id: "x", title: "X", url: "https://x.com", icon: "𝕏" },
-  { id: "gmail", title: "Gmail", url: "https://mail.google.com", icon: "✉" },
-  { id: "chatgpt", title: "ChatGPT", url: "https://chatgpt.com", icon: "✦" },
-];
 
 /** A greeting by the local time: "Good morning, David" … "Still up, David?" after 10pm. */
 export function greetingFor(name: string, date = new Date()) {
@@ -152,87 +134,6 @@ export function mountComposer() {
     prompt.value = "";
     fit();
   });
-}
-
-function loadShortcuts(): Shortcut[] {
-  try {
-    const raw = localStorage.getItem(SHORTCUTS_STORE);
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [...DEFAULT_SHORTCUTS];
-}
-
-function saveShortcuts(list: Shortcut[]) {
-  try {
-    localStorage.setItem(SHORTCUTS_STORE, JSON.stringify(list));
-  } catch {}
-}
-
-/** Mounts customizable liquid-glass shortcuts directly below the search bar */
-export function mountShortcuts(host = document.querySelector<HTMLElement>(".shortcuts-row")) {
-  if (!host) return;
-
-  let shortcuts = loadShortcuts();
-
-  function render() {
-    host!.replaceChildren();
-
-    for (const item of shortcuts) {
-      const a = document.createElement("a");
-      a.className = "shortcut-pill";
-      a.href = item.url;
-      a.title = `${item.title} (${item.url})`;
-
-      const iconSpan = document.createElement("span");
-      iconSpan.className = "shortcut-icon";
-      iconSpan.textContent = item.icon || item.title.slice(0, 1).toUpperCase();
-
-      const titleSpan = document.createElement("span");
-      titleSpan.className = "shortcut-title";
-      titleSpan.textContent = item.title;
-
-      const delBtn = document.createElement("button");
-      delBtn.className = "shortcut-del";
-      delBtn.type = "button";
-      delBtn.title = "Delete shortcut";
-      delBtn.innerHTML = "&times;";
-      delBtn.addEventListener("click", (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        shortcuts = shortcuts.filter((s) => s.id !== item.id);
-        saveShortcuts(shortcuts);
-        render();
-      });
-
-      a.append(iconSpan, titleSpan, delBtn);
-      host!.append(a);
-    }
-
-    const addBtn = document.createElement("button");
-    addBtn.type = "button";
-    addBtn.className = "shortcut-add";
-    addBtn.title = "Add custom shortcut";
-    addBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg><span>Add</span>`;
-
-    addBtn.addEventListener("click", () => {
-      const title = window.prompt("Shortcut Name (e.g. Netflix, Notion):");
-      if (!title || !title.trim()) return;
-      let url = window.prompt("Shortcut URL (e.g. https://notion.so):");
-      if (!url || !url.trim()) return;
-      url = url.trim();
-      if (!/^https?:\/\//i.test(url)) url = "https://" + url;
-
-      const id = "sc-" + Date.now();
-      const icon = title.trim().slice(0, 2).toUpperCase();
-      shortcuts.push({ id, title: title.trim(), url, icon });
-      saveShortcuts(shortcuts);
-      render();
-    });
-
-    host!.append(addBtn);
-  }
-
-  render();
 }
 
 export interface Choice {

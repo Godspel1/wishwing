@@ -4,7 +4,8 @@ import "@fontsource-variable/geist-mono";
 import { mountTweakPanel, type Control, type ControlKit } from "./panel";
 import { ANIMALS, AnimalEngine, SHARED_CONTROLS, type KnobSpec, type Tuning } from "./src";
 import { applyPageTheme, currentTheme, mountTheme } from "./theme";
-import { mountClock, mountComposer, mountGreeting, mountShortcuts } from "./ui";
+import { mountShortcuts } from "./shortcuts";
+import { mountClock, mountComposer, mountGreeting } from "./ui";
 
 // Only Chromium can run an SVG filter inside backdrop-filter; everyone else gets frosted glass.
 // (Set here, not in an inline <script>: Chrome blocks inline scripts on extension pages.)
