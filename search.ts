@@ -37,8 +37,6 @@ export function destinationFor(text: string) {
   return `https://www.google.com/search?q=${q(text)}`;
 }
 
-const TIP = "yt, gh, r, w, m or img and a space searches that site";
-
 export function mountComposer(shortcuts?: ShortcutsControl | null) {
   const form = document.querySelector<HTMLFormElement>(".composer")!;
   const prompt = form.querySelector("textarea")!;
@@ -56,7 +54,6 @@ export function mountComposer(shortcuts?: ShortcutsControl | null) {
     const text = prompt.value;
     const prefix = parsePrefix(text);
     hint.replaceChildren();
-    hint.classList.remove("tip");
     if (prefix) {
       const chip = document.createElement("span");
       chip.className = "composer-chip";
@@ -67,9 +64,6 @@ export function mountComposer(shortcuts?: ShortcutsControl | null) {
     } else if (matches.length) {
       const more = matches.length > 1 ? ` (${matches.length} matches)` : "";
       hint.append(key("Tab"), ` to open ${matches[0].title}${more}`);
-    } else if (!text && document.activeElement === prompt) {
-      hint.classList.add("tip");
-      hint.textContent = TIP;
     }
   }
 
@@ -102,7 +96,6 @@ export function mountComposer(shortcuts?: ShortcutsControl | null) {
   }
 
   prompt.addEventListener("input", update);
-  prompt.addEventListener("focus", showHint);
   prompt.addEventListener("blur", () => {
     // Leaving the box drops the pick, so the shortcuts don't stay dimmed behind a hidden choice.
     if (!prompt.value) shortcuts?.filter("");
