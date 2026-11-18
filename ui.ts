@@ -271,7 +271,8 @@ export function mountChoices(host: HTMLElement, choices: Choice[], current: stri
       const on = b.dataset.value === value;
       b.setAttribute("aria-checked", String(on));
       b.tabIndex = on ? 0 : -1;
-      if (on) b.scrollIntoView({ block: "nearest", inline: "nearest" });
+      // Only on a pick: scrolling a hidden drawer into view would shift the page.
+      if (on && pick) b.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
     place();
     if (pick) onPick(value);

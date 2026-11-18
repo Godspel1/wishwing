@@ -167,11 +167,12 @@ export const butterflies: Animal<Butterfly> = {
   },
 
   draw(b, pen) {
+    if (b.vanish >= 0.99) return;
     const S = b.span;
     const open = Math.max(0.08, b.open);
     const ink$ = pen.ink;
     // The body yaws a touch with each beat.
-    const pose = { x: b.x, y: b.y, heading: b.heading + 0.06 * Math.sin(b.phase), span: S, depth: b.depth, id: b.id };
+    const pose = { x: b.x, y: b.y, heading: b.heading + 0.06 * Math.sin(b.phase), span: S, depth: b.depth, id: b.id, vanish: b.vanish };
     const minBody = pen.cw * 0.4;
 
     pen.shape(pose, 0.75, (u, v) => {
@@ -211,7 +212,7 @@ export const butterflies: Animal<Butterfly> = {
     const at = { x: 0, y: 0 };
     for (const side of [-1, 1]) {
       pen.toWorld(pose, tipU, tipV * side, at);
-      pen.shed(at.x, at.y, (0.02 + 0.1 * stroke) * b.depth);
+      pen.shed(at.x, at.y, (0.02 + 0.1 * stroke) * b.depth * (1 - b.vanish));
     }
   },
 };

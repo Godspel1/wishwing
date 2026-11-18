@@ -30,8 +30,18 @@ export interface Creature {
   /** Personal deviation from the course, -1 → 1 (scaled by tuning.spread). */
   bias: number;
   startledUntil: number;
+  /** Being retired: it fades out (or leaves downstream) and is then removed. */
+  leaving: boolean;
+  /** 0 fully present → 1 invisible. Eases in for newcomers and out for leavers. */
+  vanish: number;
   /** Removed from the flock; anyone holding a reference should let go. */
   gone: boolean;
+}
+
+/** Multipliers on top of the tuning (calmer at night), so they never end up saved as the user's own tweaks. */
+export interface Pace {
+  density: number;
+  speed: number;
 }
 
 /** Knobs every animal has. Each animal's defaults start from these and add its own. */
@@ -183,8 +193,14 @@ export class Flock<C extends Creature = Creature> {
   base = 120;
   /** Scratch acceleration the steering helpers add into. */
   readonly acc = { x: 0, y: 0 };
+  /** Where the population and speed are headed (see Pace). */
+  pace: Pace = { density: 1, speed: 1 };
+  /** The speed multiplier actually in use, easing toward pace.speed so changes glide in. */
+  speedMul = 1;
 
   private nextId = 1;
+  /** Fractional retirements carried between steps. */
+  private retireDebt = 0;
 
   /** count pins the population, overriding tuning.density. */
   constructor(readonly animal: Animal<C>, readonly tuning: Tuning, private count?: number) {}
@@ -217,7 +233,7 @@ export class Flock<C extends Creature = Creature> {
   get target() {
     const { width: W, height: H, animal } = this;
     const shrink = (this.base / animal.scale / REFERENCE_SIZE) ** 2;
-    return this.count ?? clamp(Math.round(((W * H) / (animal.area * shrink)) * this.tuning.density), 1, animal.max ?? 200);
+    return this.count ?? clamp(Math.round(((W * H) / (animal.area * shrink)) * this.tuning.density * this.pace.density), 1, animal.max ?? 200);
   }
 
   depthOf(roll: number) {
@@ -227,7 +243,7 @@ export class Flock<C extends Creature = Creature> {
 
   /** Parallax: far individuals cover less screen per second. */
   cruise(c: Creature) {
-    return this.animal.speed * (0.55 + 0.45 * c.depth) * this.tuning.speed;
+    return this.animal.speed * (0.55 + 0.45 * c.depth) * this.tuning.speed * this.speedMul;
   }
 
   /** Click: everything nearby reacts, then rejoins the stream (or the animal takes the tap itself). */
@@ -256,32 +272,80 @@ export class Flock<C extends Creature = Creature> {
 
   step(dt: number) {
     this.time += dt;
-    this.populate(false);
+    this.speedMul += (this.pace.speed - this.speedMul) * (1 - Math.exp(-dt / 3));
+    this.populate(false, dt);
     for (const c of this.creatures) {
       c.depth = this.depthOf(c.roll);
       c.span = this.base * c.depth * this.tuning.size;
+      if (c.leaving) {
+        c.vanish = Math.min(1, c.vanish + dt / 2);
+        if (c.vanish >= 1) c.gone = true;
+      } else if (c.vanish > 0) {
+        c.vanish = Math.max(0, c.vanish - dt / 1.2);
+      }
     }
+    this.sweep();
     this.animal.prepare?.(this, dt);
     for (const c of this.creatures) this.animal.update(c, this, dt);
+    this.sweep();
   }
 
-  /** Add or remove individuals until the population matches the tuning. */
-  private populate(scatter: boolean) {
+  /** Drop everything marked gone. */
+  private sweep() {
+    if (this.creatures.some((c) => c.gone)) this.creatures = this.creatures.filter((c) => !c.gone);
+  }
+
+  /**
+   * Bring the population toward the target. Seeding fills (or trims) at once; after that, newcomers
+   * fade in and the surplus is retired a few at a time, farthest first, so nobody pops in or out.
+   */
+  private populate(scatter: boolean, dt = 0) {
     const target = this.target;
-    while (this.creatures.length > target) {
-      const [c] = this.creatures.splice(Math.floor(Math.random() * this.creatures.length), 1);
-      c.gone = true;
+    let active = 0;
+    for (const c of this.creatures) if (!c.leaving) active++;
+
+    if (active > target) {
+      if (scatter) {
+        for (const c of this.creatures) c.gone = true;
+        this.sweep();
+        active = 0;
+      } else {
+        this.retireDebt += ((active - target) * dt) / 1.5;
+        for (; this.retireDebt >= 1 && active > target; this.retireDebt--, active--) this.retireOne();
+        return;
+      }
     }
-    while (this.creatures.length < target) {
+    this.retireDebt = 0;
+    // Short of the target: call back any that were on their way out first.
+    for (const c of this.creatures) {
+      if (active >= target) break;
+      if (c.leaving) {
+        c.leaving = false;
+        active++;
+      }
+    }
+    for (; active < target; active++) {
       const c = this.spawn();
       if (scatter || Math.random() < 0.5) {
         // Seeding (or growing the flock): drop it in anywhere so the screen fills at once.
         c.x = rand(0, this.width);
         c.y = rand(0, this.height);
+        if (!scatter) c.vanish = 1;
         this.animal.enter?.(c, this);
       }
       this.insert(c);
     }
+  }
+
+  /** Retire the farthest of a few at random: far ones are already faint, so their fade goes unnoticed. */
+  private retireOne() {
+    let pick: C | null = null;
+    for (let i = 0; i < 5; i++) {
+      const c = this.creatures[Math.floor(Math.random() * this.creatures.length)];
+      if (!c.leaving && (!pick || c.depth < pick.depth)) pick = c;
+    }
+    pick ??= this.creatures.find((c) => !c.leaving) ?? null;
+    if (pick) pick.leaving = true;
   }
 
   /** Keep farther individuals first so the near ones draw over them. */
@@ -303,6 +367,8 @@ export class Flock<C extends Creature = Creature> {
       heading: 0,
       bias: 0,
       startledUntil: 0,
+      leaving: false,
+      vanish: 0,
       gone: false,
     };
     base.depth = this.depthOf(base.roll);
@@ -312,8 +378,12 @@ export class Flock<C extends Creature = Creature> {
     return c;
   }
 
-  /** Bring a creature back in from the upstream edges, spread evenly across the flow. */
+  /** Bring a creature back in from the upstream edges, spread evenly across the flow. One on its way out just leaves. */
   reenter(c: C) {
+    if (c.leaving) {
+      c.gone = true;
+      return;
+    }
     const { width: W, height: H, course } = this;
     const m = c.span * 0.6;
     const cos = Math.cos(course);

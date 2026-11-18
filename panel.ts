@@ -5,7 +5,8 @@
  *   - Hovering cursor at left or right edge for 1 second reveals the panel with smooth glass slide.
  *   - Profile greeting name input at the top.
  */
-import { getGreetingName, setGreetingName } from "./ui";
+import type { ThemeMode } from "./theme";
+import { getGreetingName, mountChoices, setGreetingName } from "./ui";
 
 const GLASS_DEFAULTS = {
   blur: 3.5,
@@ -111,12 +112,15 @@ export function mountTweakPanel<T extends Knobs>(
     animals = [],
     currentAnimal = "",
     onPickAnimal,
+    theme,
   }: {
     storageKey?: string;
     onChange?: () => void;
     animals?: AnimalChoice[];
     currentAnimal?: string;
     onPickAnimal?: (key: string) => void;
+    /** The time-of-day theme, to pick Auto / Light / Dark. */
+    theme?: { readonly mode: ThemeMode; setMode(mode: ThemeMode): void };
   } = {},
 ) {
   let activeStorageKey = storageKey;
@@ -260,6 +264,26 @@ export function mountTweakPanel<T extends Knobs>(
     });
     nameRow.append(nameLabel, nameInput);
     profileSection.append(nameRow);
+
+    if (theme) {
+      const themeRow = el("div", "tweaks-name-row");
+      const themeLabel = el("span", "tweaks-name-label", "Theme");
+      const choices = el("div", "choices");
+      choices.setAttribute("role", "radiogroup");
+      choices.setAttribute("aria-label", "Theme");
+      themeRow.append(themeLabel, choices);
+      profileSection.append(themeRow);
+      mountChoices(
+        choices,
+        [
+          { value: "auto", label: "Auto" },
+          { value: "light", label: "Light" },
+          { value: "dark", label: "Dark" },
+        ],
+        theme.mode,
+        (value) => theme.setMode(value as ThemeMode),
+      );
+    }
     body.append(profileSection);
 
     // 2. Animal Selector Grid

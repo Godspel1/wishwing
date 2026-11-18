@@ -5,6 +5,7 @@ A Chrome new tab page: butterflies made of text characters drift across a dark s
 ## What it does
 
 - **Clock** with today's date, in your system's 12- or 24-hour style.
+- **Day and night**: light from 7am to 7pm and dark otherwise, with fewer, slower butterflies after 10pm. Pin it to Light or Dark in the settings drawer.
 - **Greeting** by time of day ("Good morning, David"). Click the name to change it.
 - **Search box**: press <kbd>Enter</kbd> to search Google, or type a web address to go straight there.
 - **Shortcuts** under the search box. Hover one and click × to remove it, or click **Add** for your own.
@@ -43,6 +44,7 @@ Then open `http://localhost:5173`.
 - `index.html`, `page.css`: the page and its styles.
 - `demo.ts`: starts the butterflies, the settings drawer, search and shortcuts.
 - `ui.ts`: greeting, search box and shortcuts.
+- `theme.ts`: the day/night theme and the calmer late-night pace. Add `?hour=23` to the URL to preview another hour.
 - `panel.ts`: the edge-hover settings drawer.
 - `src/`: the animation engine (`flock.ts`), the character renderer (`renderer.ts`) and the butterflies (`animals/butterflies.ts`).
 - `public/`: the extension manifest and icons.

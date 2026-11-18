@@ -1,5 +1,5 @@
 import { ANIMALS, type AnimalKey } from "./animals";
-import { Flock, type Animal, type Tuning } from "./flock";
+import { Flock, type Animal, type Pace, type Tuning } from "./flock";
 import { AsciiRenderer, type Theme } from "./renderer";
 
 const STEP = 1 / 60;
@@ -28,6 +28,8 @@ export class AnimalEngine {
   private resizeObserver: ResizeObserver;
   private intersectionObserver: IntersectionObserver;
   private disposed = false;
+  /** Survives setAnimal(): every new Flock is wired to it (see wire()). */
+  private pace: Pace = { density: 1, speed: 1 };
 
   /** count pins the population; tuning overrides any of the animal's defaults. */
   constructor(
@@ -42,7 +44,7 @@ export class AnimalEngine {
     this.count = count;
     this.animal = resolve(animal);
     this.tuning = { ...this.animal.defaults, ...tuning } as Tuning;
-    this.flock = new Flock(this.animal, this.tuning, count);
+    this.flock = this.wire(new Flock(this.animal, this.tuning, count));
     this.renderer = new AsciiRenderer(canvas, this.tuning);
     this.renderer.setFontFamily(getComputedStyle(canvas).fontFamily);
     this.renderer.setAnimal(this.animal, this.tuning);
@@ -81,9 +83,28 @@ export class AnimalEngine {
   setAnimal(animal: AnimalKey | Animal<any>, tuning?: Partial<Tuning>) {
     this.animal = resolve(animal);
     this.tuning = { ...this.animal.defaults, ...tuning } as Tuning;
-    this.flock = new Flock(this.animal, this.tuning, this.count);
+    this.flock = this.wire(new Flock(this.animal, this.tuning, this.count));
     this.renderer.setAnimal(this.animal, this.tuning);
     this.resize();
+  }
+
+  /** Hand a new Flock the engine's lasting state, so switching animals keeps it. */
+  private wire<F extends Flock<any>>(flock: F): F {
+    flock.pace = this.pace;
+    flock.speedMul = this.pace.speed;
+    return flock;
+  }
+
+  /**
+   * Fewer or slower creatures without touching the tuning (so the tweak panel never saves it).
+   * Population changes fade in and out; speed eases over a few seconds.
+   */
+  setPace(pace: Partial<Pace>) {
+    Object.assign(this.pace, pace);
+    if (this.reducedMotion.matches) {
+      this.flock.speedMul = this.pace.speed;
+      this.drawStill();
+    }
   }
 
   set(key: string, value: number | boolean) {
@@ -93,9 +114,11 @@ export class AnimalEngine {
     if (this.reducedMotion.matches) this.drawStill();
   }
 
-  setTheme(theme: Theme) {
-    this.renderer.setTheme(theme);
-    if (this.reducedMotion.matches) this.drawStill();
+  /** Switch theme; `fade` crossfades over that many ms (never with reduced motion, or while paused). */
+  setTheme(theme: Theme, { fade = 0 }: { fade?: number } = {}) {
+    const still = this.reducedMotion.matches;
+    this.renderer.setTheme(theme, still || !this.visible ? 0 : fade);
+    if (still) this.drawStill();
   }
 
   private resize() {

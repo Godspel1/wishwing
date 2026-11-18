@@ -59,6 +59,8 @@ export interface Pose {
   depth: number;
   /** Seeds the glyph texture. */
   id: number;
+  /** 0 fully present → 1 faded out (arriving or leaving the flock). */
+  vanish?: number;
 }
 
 /**
@@ -86,6 +88,23 @@ function hueMatrix(degrees: number) {
     0.213 - a * 0.213 + s * 0.143, 0.715 + a * 0.285 + s * 0.14, 0.072 - a * 0.072 - s * 0.283,
     0.213 - a * 0.213 - s * 0.787, 0.715 - a * 0.715 + s * 0.715, 0.072 + a * 0.928 + s * 0.072,
   ];
+}
+
+/** Fog deepened by vanish: 0 leaves it as is, 1 fades all the way into the background. */
+function withVanish(fog: number, vanish = 0) {
+  return vanish > 0 ? 1 - (1 - fog) * (1 - vanish) : fog;
+}
+
+const mix = (a: number, b: number, k: number) => a + (b - a) * k;
+const mixRGB = (a: RGB, b: RGB, k: number): RGB => [mix(a[0], b[0], k), mix(a[1], b[1], k), mix(a[2], b[2], k)];
+
+function mixPalette(a: Palette, b: Palette, k: number): Palette {
+  return {
+    background: mixRGB(a.background, b.background, k),
+    grid: [mix(a.grid[0], b.grid[0], k), mix(a.grid[1], b.grid[1], k), mix(a.grid[2], b.grid[2], k), mix(a.grid[3], b.grid[3], k)],
+    trailAlpha: mix(a.trailAlpha, b.trailAlpha, k),
+    ink: mixRGB(a.ink, b.ink, k),
+  };
 }
 
 /** Faint cell grid, snapped to device pixels. */
@@ -128,6 +147,8 @@ export class Pen {
   readonly ink: Ink = { r: 0, g: 0, b: 0, kind: 0, glyphs: null, au: 0, av: 0 };
   t = 0;
   theme: Theme = "light";
+  /** How dark the background is right now: 0 light → 1 dark, in between while the theme crossfades. */
+  dark = 0;
 
   constructor(private r: AsciiRenderer) {}
 
@@ -161,9 +182,9 @@ export class Pen {
     return out;
   }
 
-  /** Default fade for something at this depth. */
-  fogFor(depth: number) {
-    return (1 - depth) * this.r.tuning.fog;
+  /** Default fade for something at this depth, deepened while it fades in or out of the flock. */
+  fogFor(depth: number, vanish = 0) {
+    return withVanish((1 - depth) * this.r.tuning.fog, vanish);
   }
 
   /** Rasterise a silhouette within `reach` (fraction of span) of the pose. */
@@ -183,7 +204,7 @@ export class Pen {
   lineBody(p: Pose, u0: number, v0: number, u1: number, v1: number, color: RGB, tip?: string) {
     const a = this.toWorld(p, u0, v0, this.a);
     const b = this.toWorld(p, u1, v1, this.b);
-    this.r.line(a.x, a.y, b.x, b.y, color, this.fogFor(p.depth), tip);
+    this.r.line(a.x, a.y, b.x, b.y, color, this.fogFor(p.depth, p.vanish), tip);
   }
 
   /** A single glyph at (x, y) px, faded by depth (or by `fog` if given). Soft dots never cover solid cells. */
@@ -195,8 +216,8 @@ export class Pen {
    * Exactly one solid cell at (x, y) px: a block of `fill` with `glyph` in `color`, over whatever is
    * there. For small features that must look the same however the animal turns, like a pair of eyes.
    */
-  spot(x: number, y: number, glyph: string, color: RGB, fill: RGB, depth: number) {
-    this.r.spot(x, y, glyph, color, fill, this.fogFor(depth));
+  spot(x: number, y: number, glyph: string, color: RGB, fill: RGB, depth: number, fog = this.fogFor(depth)) {
+    this.r.spot(x, y, glyph, color, fill, fog);
   }
 
   /** Leave something in the trail at (x, y), scaled by the trail knob. */
@@ -226,6 +247,8 @@ export class AsciiRenderer {
   private fontFamily = "ui-monospace, Menlo, monospace";
   private theme: Theme = "light";
   private animal: Animal<any> | null = null;
+  /** A theme crossfade in progress: from → to over ms, started at `start` (performance.now()). */
+  private blend: { from: Palette; fromTheme: Theme; start: number; ms: number; k: number } | null = null;
 
   private energy = new Float32Array(0);
   private energyTmp = new Float32Array(0);
@@ -252,10 +275,37 @@ export class AsciiRenderer {
     if (family) this.fontFamily = family;
   }
 
-  setTheme(theme: Theme) {
+  /** Switch theme, at once or (ms > 0) as a crossfade that render() carries out. */
+  setTheme(theme: Theme, ms = 0) {
+    if (ms > 0 && theme !== this.theme && this.cols > 0) {
+      this.blend = { from: this.palette, fromTheme: this.theme, start: performance.now(), ms, k: 0 };
+      this.theme = theme;
+      return;
+    }
+    this.blend = null;
     this.theme = theme;
     this.pen.theme = theme;
+    this.pen.dark = theme === "dark" ? 1 : 0;
     this.palette = PALETTES[theme];
+    this.restyle();
+  }
+
+  /** Advance a theme crossfade: blend the palette and the trail colour, flip the pen's theme halfway. */
+  private stepBlend() {
+    const b = this.blend;
+    if (!b) return;
+    const raw = clamp((performance.now() - b.start) / b.ms, 0, 1);
+    const k = raw * raw * (3 - 2 * raw);
+    b.k = k;
+    const to = PALETTES[this.theme];
+    this.palette = mixPalette(b.from, to, k);
+    this.pen.theme = k < 0.5 ? b.fromTheme : this.theme;
+    const fromDark = b.fromTheme === "dark" ? 1 : 0;
+    this.pen.dark = mix(fromDark, 1 - fromDark, k);
+    if (raw >= 1) {
+      this.blend = null;
+      this.palette = to;
+    }
     this.restyle();
   }
 
@@ -270,13 +320,15 @@ export class AsciiRenderer {
   /** Rebuild cached colours and the background after a theme, animal, hue or grid change. */
   restyle() {
     const palette = this.palette;
-    const base = this.animal?.trail[this.theme] ?? palette.ink;
+    const b = this.blend;
+    const trail = this.animal?.trail;
+    const base = trail ? (b ? mixRGB(trail[b.fromTheme], trail[this.theme], b.k) : trail[this.theme]) : palette.ink;
     this.hue = hueMatrix(this.tuning.hueShift);
     this.hueOn = this.tuning.hueShift % 360 !== 0;
-    const [r, g, b] = this.turn(base[0], base[1], base[2]);
+    const [r, g, bl] = this.turn(base[0], base[1], base[2]).map(Math.round);
     this.trailStyles = [];
     for (let l = 0; l < ALPHA_LEVELS; l++) {
-      this.trailStyles.push(`rgba(${r},${g},${b},${((palette.trailAlpha * (l + 1)) / ALPHA_LEVELS).toFixed(3)})`);
+      this.trailStyles.push(`rgba(${r},${g},${bl},${((palette.trailAlpha * (l + 1)) / ALPHA_LEVELS).toFixed(3)})`);
     }
     this.paintBackground();
   }
@@ -330,13 +382,14 @@ export class AsciiRenderer {
     g.fillStyle = rgb(...this.palette.background);
     g.fillRect(0, 0, W, H);
     const [gr, gg, gb, ga] = this.palette.grid;
-    paintGrid(g, W, H, cw, ch, dpr, `rgba(${gr},${gg},${gb},${(ga * this.tuning.grid).toFixed(3)})`);
+    paintGrid(g, W, H, cw, ch, dpr, `rgba(${Math.round(gr)},${Math.round(gg)},${Math.round(gb)},${(ga * this.tuning.grid).toFixed(3)})`);
   }
 
   render(flock: Flock<any>, dt: number) {
     const { ctx, dpr, cols, ch } = this;
     if (cols === 0) return;
     this.pen.t = flock.time;
+    this.stepBlend();
 
     for (const e of flock.events) this.stamp(e.x, e.y, e.radius, e.amount);
     flock.events.length = 0;
@@ -445,7 +498,8 @@ export class AsciiRenderer {
    * become solid (or glyph-only, for glows); partial cells become soft edge
    * glyphs, which never cover anything solid.
    */
-  shape(p: Pose, reach: number, sample: Sampler, { light = 1, tilt = 0, fog = (1 - p.depth) * this.tuning.fog }: ShapeOptions) {
+  shape(p: Pose, reach: number, sample: Sampler, { light = 1, tilt = 0, fog: baseFog = (1 - p.depth) * this.tuning.fog }: ShapeOptions) {
+    const fog = withVanish(baseFog, p.vanish);
     const { cellFlag, cellFill, cellColor, cellGlyph, cw, ch, cols, rows } = this;
     const ink = this.pen.ink;
     const t = this.pen.t;

@@ -3,6 +3,7 @@ import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import { mountTweakPanel, type Control, type ControlKit } from "./panel";
 import { ANIMALS, AnimalEngine, SHARED_CONTROLS, type KnobSpec, type Tuning } from "./src";
+import { applyPageTheme, currentTheme, mountTheme } from "./theme";
 import { mountClock, mountComposer, mountGreeting, mountShortcuts } from "./ui";
 
 // Only Chromium can run an SVG filter inside backdrop-filter; everyone else gets frosted glass.
@@ -16,8 +17,10 @@ const count = Number(params.get("count")) || undefined;
 
 const butterflies = ANIMALS.butterflies;
 
-// Dark mode canvas engine
-const engine = new AnimalEngine(document.querySelector("canvas")!, { animal: "butterflies", count, theme: "dark" });
+// Light by day, dark at night (or whatever the drawer pins it to).
+applyPageTheme();
+const engine = new AnimalEngine(document.querySelector("canvas")!, { animal: "butterflies", count, theme: currentTheme() });
+const theme = mountTheme(engine);
 
 const storageKey = `${STORE}tweaks:butterflies`;
 
@@ -38,7 +41,7 @@ function controls(kit: ControlKit<Tuning>): [string, Control[]][] {
 }
 
 // Tweaks panel with the greeting name input and the butterfly knobs
-mountTweakPanel(engine, butterflies.defaults, controls, { storageKey });
+mountTweakPanel(engine, butterflies.defaults, controls, { storageKey, theme });
 
 window.addEventListener("storage", (e) => {
   if (e.key === storageKey) location.reload();
