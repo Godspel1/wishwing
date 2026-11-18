@@ -38,6 +38,22 @@ export interface Creature {
   gone: boolean;
 }
 
+/** The mouse pointer as the flock sees it (canvas px), written by the engine every frame. */
+export interface PointerState {
+  x: number;
+  y: number;
+  /** Smoothed velocity, px/s; fades to 0 once the pointer stops. */
+  vx: number;
+  vy: number;
+  /** 0 still or gone → 1 moving right now. */
+  stir: number;
+  /** Over the window at all. */
+  inside: boolean;
+}
+
+/** Strength of avoidPointer at Shyness 1, px/s². */
+const AVOID_ACCEL = 600;
+
 
 /** Knobs every animal has. Each animal's defaults start from these and add its own. */
 export const SHARED_TUNING = {
@@ -61,6 +77,8 @@ export const SHARED_TUNING = {
   farBias: 1.6,
   /** How tightly individuals hold their course. */
   grip: 2,
+  /** How much they veer away from the moving pointer. */
+  avoid: 1,
   /** Push between neighbours at the same depth. */
   separation: 300,
 
@@ -110,6 +128,7 @@ export const SHARED_CONTROLS: { movement: KnobSpec[]; look: KnobSpec[] } = {
     { key: "farBias", label: "Far bias", min: 0.3, max: 3, step: 0.05, hint: "How many sit far away versus close. Higher puts more of them in the distance." },
     { key: "grip", label: "Hold course", min: 0.2, max: 5, step: 0.05, hint: "How hard they steer back onto course after drifting. Higher is stricter." },
     { key: "separation", label: "Separation", min: 0, max: 1000, step: 10, hint: "How strongly neighbours keep their distance from each other." },
+    { key: "avoid", label: "Shyness", min: 0, max: 3, step: 0.05, hint: "How much they veer away from the moving mouse pointer. 0 ignores it." },
   ],
   look: [
     { key: "hueShift", label: "Hue shift (°)", min: -180, max: 180, step: 1, hint: "Turns their colours around the colour wheel, in degrees. 0 is their natural colour." },
@@ -188,6 +207,8 @@ export class Flock<C extends Creature = Creature> {
   base = 120;
   /** Scratch acceleration the steering helpers add into. */
   readonly acc = { x: 0, y: 0 };
+  /** The pointer, shared with the engine (see AnimalEngine.wire()). */
+  pointer: PointerState = { x: 0, y: 0, vx: 0, vy: 0, stir: 0, inside: false };
 
   private nextId = 1;
   /** Fractional retirements carried between steps. */
@@ -438,6 +459,42 @@ export class Flock<C extends Creature = Creature> {
         this.acc.y += (oy / d) * w;
       }
     }
+  }
+
+  /**
+   * Veer away from the moving pointer, as hard as `strength`. Looks a little ahead of the pointer,
+   * dodges sideways when it heads straight for the creature, and barely touches far ones.
+   */
+  avoidPointer(c: Creature, strength = this.tuning.avoid, reach = 150) {
+    const p = this.pointer;
+    if (strength <= 0 || p.stir < 0.01 || !p.inside) return;
+    const sp = Math.hypot(p.vx, p.vy);
+    const lead = Math.min(90, sp * 0.12);
+    const px = p.x + (sp > 1 ? (p.vx / sp) * lead : 0);
+    const py = p.y + (sp > 1 ? (p.vy / sp) * lead : 0);
+    const dx = c.x - px;
+    const dy = c.y - py;
+    const d = Math.hypot(dx, dy);
+    const R = reach * (0.5 + 0.5 * c.depth) + 0.4 * c.span;
+    if (d >= R) return;
+    let ax = d > 1 ? dx / d : -p.vy / (sp || 1);
+    let ay = d > 1 ? dy / d : p.vx / (sp || 1);
+    if (sp > 30) {
+      // Heading for us: step aside rather than just back away.
+      const ux = p.vx / sp;
+      const uy = p.vy / sp;
+      // How directly the pointer is moving at us (a points from the pointer to the creature).
+      const toward = Math.max(0, ux * ax + uy * ay);
+      const side = Math.sign(-uy * dx + ux * dy) || 1;
+      ax += -uy * side * toward * 0.8;
+      ay += ux * side * toward * 0.8;
+      const n = Math.hypot(ax, ay) || 1;
+      ax /= n;
+      ay /= n;
+    }
+    const w = (1 - d / R) ** 2 * strength * p.stir * c.depth ** 2 * (0.35 + 0.65 * clamp(sp / 700, 0, 1)) * AVOID_ACCEL;
+    this.acc.x += ax * w;
+    this.acc.y += ay * w;
   }
 
   /** Apply this.acc, cap the speed (startled creatures may go faster), move. Returns the speed. */

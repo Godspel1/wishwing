@@ -143,6 +143,7 @@ export const butterflies: Animal<Butterfly> = {
     acc.x += Math.cos(b.heading) * down * cruise * 1.4;
     acc.y += Math.sin(b.heading) * down * cruise * 1.4;
 
+    flock.avoidPointer(b);
     flock.separate(b);
     const speed = flock.move(b, dt, cruise * 2.2);
     if (flock.passed(b)) flock.reenter(b);
