@@ -12,7 +12,8 @@ A Chrome new tab page: butterflies made of text characters drift across a dark s
   - Start with a prefix and a space to search one site: `yt` YouTube, `gh` GitHub, `r` Reddit, `w` Wikipedia, `m` Google Maps, `img` Google Images.
   - Type part of a shortcut's name and press <kbd>Tab</kbd> to pick it (again for the next match), then <kbd>Enter</kbd> to open it.
 - **Shortcuts** under the search box, with each site's icon. Hover one to edit (✎) or remove (×) it, drag to reorder, or click **Add** for your own.
-- **Settings drawer**: click the gear in the bottom-right corner, press <kbd>T</kbd>, or hold the mouse at the left or right edge of the screen for a second. Pick a theme and a mood (Calm, Lively, Swarm, Still), or set the amount, speed, size and colour yourself. Everything else, including the glass look, is under Advanced.
+- **Fireflies** instead of butterflies, picked under Creature in the settings drawer: they wander, blink in bursts, and set each other off in waves. Click the sky for a ripple of flashes.
+- **Settings drawer**: click the gear in the bottom-right corner, press <kbd>T</kbd>, or hold the mouse at the left or right edge of the screen for a second. Pick the sky, the creature and a mood (Calm, Lively, Swarm, Still), or set the amount, speed, size and colour yourself. Everything else, including the glass look, is under Advanced.
 
 Everything you change is saved in your browser only. The only permission the extension asks for is `favicon`, to show the shortcuts' site icons from Chrome's own cache.
 
@@ -51,5 +52,5 @@ Then open `http://localhost:5173`.
 - `shortcuts.ts`: the shortcut pills, their add/edit form and drag-to-reorder.
 - `theme.ts` and `src/sky.ts`: the sky through the day, and the page colours that follow it. Add `?hour=17.2` to the URL to preview another time.
 - `panel.ts`: the settings drawer.
-- `src/`: the animation engine (`flock.ts`), the character renderer (`renderer.ts`) and the butterflies (`animals/butterflies.ts`).
+- `src/`: the animation engine (`flock.ts`), the character renderer (`renderer.ts`), the sky (`sky.ts`) and the creatures (`animals/butterflies.ts`, `animals/fireflies.ts`).
 - `public/`: the extension manifest and icons.

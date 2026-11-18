@@ -2,7 +2,7 @@
 import "@fontsource-variable/geist";
 import "@fontsource-variable/geist-mono";
 import { mountTweakPanel, type Control, type ControlKit } from "./panel";
-import { ANIMALS, AnimalEngine, SHARED_CONTROLS, type KnobSpec, type Tuning } from "./src";
+import { ANIMAL_KEYS, ANIMALS, AnimalEngine, SHARED_CONTROLS, type AnimalKey, type KnobSpec, type Tuning } from "./src";
 import { applyPageTheme, currentSky, mountTheme, themeFor } from "./theme";
 import { mountComposer } from "./search";
 import { mountShortcuts } from "./shortcuts";
@@ -17,18 +17,28 @@ const STORE = "wishless-tab:";
 const params = new URLSearchParams(location.search);
 const count = Number(params.get("count")) || undefined;
 
-const butterflies = ANIMALS.butterflies;
+/** The creature picked in the drawer (butterflies unless changed). */
+const ANIMAL_STORE = `${STORE}animal`;
+function savedAnimal(): AnimalKey {
+  try {
+    const key = localStorage.getItem(ANIMAL_STORE);
+    if (key && key in ANIMALS) return key as AnimalKey;
+  } catch {}
+  return "butterflies";
+}
+let animal = savedAnimal();
+const tweaksKey = (key: AnimalKey) => `${STORE}tweaks:${key}`;
 
 // The sky follows the time of day (or whatever the drawer pins it to).
 const sky = currentSky();
 applyPageTheme(sky);
-const engine = new AnimalEngine(document.querySelector("canvas")!, { animal: "butterflies", count, theme: themeFor(sky) });
+const engine = new AnimalEngine(document.querySelector("canvas")!, { animal, count, theme: themeFor(sky) });
 const theme = mountTheme(engine);
 
-const storageKey = `${STORE}tweaks:butterflies`;
-
+/** The current creature's knobs, grouped for the drawer (shared ones it ignores are left out). */
 function controls(kit: ControlKit<Tuning>): [string, Control[]][] {
-  const hidden = new Set<string>(butterflies.hide ?? []);
+  const current = engine.animal;
+  const hidden = new Set<string>(current.hide ?? []);
   const build = (spec: KnobSpec): Control => {
     if ("toggle" in spec) return kit.toggle(spec.key, spec.label, spec.hint);
     const knob = kit.knob(spec.key, spec.label, spec.min, spec.max, spec.step, spec.hint);
@@ -38,16 +48,31 @@ function controls(kit: ControlKit<Tuning>): [string, Control[]][] {
   const keep = (specs: KnobSpec[]) => specs.filter((s) => !hidden.has(s.key)).map(build);
   return [
     ["Movement", keep(SHARED_CONTROLS.movement)],
-    ...butterflies.controls.map(([title, specs]): [string, Control[]] => [title, specs.map(build)]),
+    ...current.controls.map(([title, specs]): [string, Control[]] => [title, specs.map(build)]),
     ["Look", keep(SHARED_CONTROLS.look)],
   ];
 }
 
-// Tweaks panel with the greeting name input and the butterfly knobs
-mountTweakPanel(engine, butterflies.defaults, controls, { storageKey, theme });
+const rgbCss = ([r, g, b]: [number, number, number]) => `rgb(${r}, ${g}, ${b})`;
 
+const panel = mountTweakPanel(engine, ANIMALS[animal].defaults, controls, {
+  storageKey: tweaksKey(animal),
+  theme,
+  animals: ANIMAL_KEYS.map((key) => ({ key, label: ANIMALS[key].label, swatch: rgbCss(ANIMALS[key].swatch) })),
+  currentAnimal: animal,
+  onPickAnimal(key) {
+    animal = key as AnimalKey;
+    engine.setAnimal(animal);
+    panel.updateAnimal(animal, ANIMALS[animal].defaults, controls, tweaksKey(animal));
+    try {
+      localStorage.setItem(ANIMAL_STORE, animal);
+    } catch {}
+  },
+});
+
+// Settings changed in another tab: start over with them.
 window.addEventListener("storage", (e) => {
-  if (e.key === storageKey) location.reload();
+  if (e.key === tweaksKey(animal) || e.key === ANIMAL_STORE) location.reload();
 });
 
 mountComposer(mountShortcuts());

@@ -242,7 +242,7 @@ const DEFAULTS = {
 
 export const butterflies: Animal<Butterfly> = {
   key: "butterflies",
-  label: "Butterfly",
+  label: "Butterflies",
   swatch: [50, 135, 255],
   defaults: DEFAULTS,
   controls: [
